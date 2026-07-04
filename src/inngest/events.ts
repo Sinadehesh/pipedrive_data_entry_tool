@@ -17,4 +17,16 @@ export const eventSchemas = {
       extractionId: z.string().uuid(),
     }),
   },
+  "google/gmail.notified": {
+    data: z.object({
+      /** The mailbox the notification is about — joins to connections.email. */
+      emailAddress: z.string().email(),
+      /**
+       * historyId carried by the notification. Informational only: the sync
+       * job always pulls from the CURSOR STORED in watch_channels, so missed
+       * or out-of-order notifications can never skip messages.
+       */
+      notifiedHistoryId: z.string(),
+    }),
+  },
 };

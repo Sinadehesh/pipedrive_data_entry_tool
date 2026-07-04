@@ -15,6 +15,15 @@ const envSchema = z.object({
 
   ANTHROPIC_API_KEY: z.string().min(1),
 
+  // Google Workspace ingestion (Phase 2). Optional at parse time so Phase 1
+  // paths keep working without them; google/auth.ts asserts at use time.
+  GOOGLE_CLIENT_ID: z.string().optional().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(""),
+  GMAIL_PUBSUB_TOPIC: z.string().optional().default(""),
+  PUBSUB_PUSH_SERVICE_ACCOUNT: z.string().optional().default(""),
+  PUBSUB_PUSH_AUDIENCE: z.string().optional().default(""),
+  TOKEN_ENCRYPTION_KEY: z.string().optional().default(""),
+
   INTERNAL_EMAIL_DOMAINS: z.string().optional().default(""),
 });
 

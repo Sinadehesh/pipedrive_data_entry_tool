@@ -186,6 +186,70 @@ export const syncLog = pgTable("sync_log", {
     .defaultNow(),
 });
 
+export const connectionStatus = pgEnum("connection_status", [
+  "active",
+  "error", // last watch renewal / token refresh failed; needs attention
+  "revoked", // user disconnected or Google revoked the grant
+]);
+
+/**
+ * OAuth grants — one row per connected Google mailbox. The refresh token is
+ * AES-256-GCM encrypted at rest (src/lib/crypto.ts) and never logged.
+ * Rows are created by the OAuth connect flow (settings UI); the ingestion
+ * plane only reads them.
+ */
+export const connections = pgTable(
+  "connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: text("provider").notNull().default("google"),
+    /** The mailbox address — join key for Pub/Sub notifications. */
+    email: text("email").notNull(),
+    refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
+    status: connectionStatus("status").notNull().default("active"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("connections_provider_email_uq").on(t.provider, t.email)],
+);
+
+/**
+ * Watch lifecycle state. Google push channels expire SILENTLY (Gmail after
+ * 7 days) — without the renewal cron acting on `expiresAt`, ingestion just
+ * stops with no error anywhere. `cursor` is the mailbox's delta position
+ * (Gmail historyId now; Calendar syncToken in Phase 3) and only advances
+ * after the corresponding ledger writes have committed.
+ */
+export const watchChannels = pgTable(
+  "watch_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => connections.id),
+    kind: text("kind", { enum: ["gmail", "gcal"] }).notNull(),
+    cursor: text("cursor"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastNotifiedAt: timestamp("last_notified_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("watch_channels_connection_kind_uq").on(t.connectionId, t.kind),
+    index("watch_channels_expires_at_idx").on(t.expiresAt),
+  ],
+);
+
 export const identityMap = pgTable(
   "identity_map",
   {
