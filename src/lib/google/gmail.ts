@@ -1,7 +1,7 @@
 import type { gmail_v1 } from "googleapis";
 
 import type { Participant } from "@/lib/db/schema";
-import { gmailFor, googleEnv, type Connection } from "./auth";
+import { gmailFor, googleEnv, type GoogleConnection } from "./auth";
 
 /**
  * Minimal wrapper over the Gmail API for the pull-on-notify loop.
@@ -31,7 +31,7 @@ function isNotFound(err: unknown): boolean {
  * Returns the mailbox's latest historyId as the next cursor.
  */
 export async function listHistory(
-  connection: Connection,
+  connection: GoogleConnection,
   startHistoryId: string,
 ): Promise<{ messageIds: string[]; newHistoryId: string }> {
   const gmail = gmailFor(connection);
@@ -81,7 +81,7 @@ export type GmailMessage = {
 
 /** Fetch and flatten one message: headers, participants, plain-text body. */
 export async function getMessage(
-  connection: Connection,
+  connection: GoogleConnection,
   messageId: string,
 ): Promise<GmailMessage | null> {
   const gmail = gmailFor(connection);
@@ -133,7 +133,7 @@ export async function getMessage(
  * recent inbox/sent message IDs.
  */
 export async function boundedResync(
-  connection: Connection,
+  connection: GoogleConnection,
   days: number,
   maxMessages = 500,
 ): Promise<{ messageIds: string[]; newHistoryId: string }> {
@@ -168,7 +168,7 @@ export async function boundedResync(
  * message between the old cursor and now is skipped).
  */
 export async function startWatch(
-  connection: Connection,
+  connection: GoogleConnection,
 ): Promise<{ historyId: string; expiresAt: Date }> {
   const gmail = gmailFor(connection);
   const res = await gmail.users.watch({

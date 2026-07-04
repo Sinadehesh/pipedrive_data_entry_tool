@@ -3,7 +3,7 @@ import {
   type CallExtraction,
   type Signal,
 } from "@/lib/ai/schemas";
-import { env } from "@/lib/env";
+import type { fieldMappings } from "@/lib/db/schema";
 
 /**
  * Write-safety guardrails for Pipedrive:
@@ -11,30 +11,36 @@ import { env } from "@/lib/env";
  * - Notes are append-only and therefore always safe — written for every
  *   interaction regardless of confidence. This alone delivers visible
  *   "100% data entry" inside Pipedrive.
- * - Custom field updates require per-signal confidence >= 0.8 AND a
- *   configured field key. A signal that doesn't clear the bar simply isn't
- *   written; it remains visible in the note and in Postgres for review.
+ * - Custom field updates are driven by the TENANT's field_mappings rows:
+ *   a signal is written only if the tenant mapped it to one of their
+ *   Pipedrive custom fields AND it clears the confidence floor (the
+ *   mapping's own minConfidence, or the global 0.8 default). No mapping,
+ *   no write — the signal remains visible in the note and in Postgres.
  */
+export type FieldMapping = Pick<
+  typeof fieldMappings.$inferSelect,
+  "signal" | "pipedriveFieldKey" | "minConfidence"
+>;
+
 export function buildDealFieldUpdate(
   extraction: CallExtraction,
+  mappings: FieldMapping[],
 ): Record<string, string> {
-  const e = env();
+  const signals: Record<FieldMapping["signal"], Signal> = {
+    bant_budget: extraction.bant.budget,
+    bant_authority: extraction.bant.authority,
+    bant_need: extraction.bant.need,
+    bant_timeline: extraction.bant.timeline,
+  };
+
   const fields: Record<string, string> = {};
-
-  const mapping: [fieldKey: string, signal: Signal][] = [
-    [e.PIPEDRIVE_FIELD_BANT_BUDGET, extraction.bant.budget],
-    [e.PIPEDRIVE_FIELD_BANT_AUTHORITY, extraction.bant.authority],
-    [e.PIPEDRIVE_FIELD_BANT_NEED, extraction.bant.need],
-    [e.PIPEDRIVE_FIELD_BANT_TIMELINE, extraction.bant.timeline],
-  ];
-
-  for (const [fieldKey, signal] of mapping) {
-    if (!fieldKey) continue;
-    if (signal.value === null) continue;
-    if (signal.confidence < AUTO_WRITE_CONFIDENCE_FLOOR) continue;
-    fields[fieldKey] = signal.value;
+  for (const mapping of mappings) {
+    const signal = signals[mapping.signal];
+    if (!signal || signal.value === null) continue;
+    const floor = mapping.minConfidence ?? AUTO_WRITE_CONFIDENCE_FLOOR;
+    if (signal.confidence < floor) continue;
+    fields[mapping.pipedriveFieldKey] = signal.value;
   }
-
   return fields;
 }
 

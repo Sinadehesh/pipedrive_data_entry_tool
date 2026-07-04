@@ -403,7 +403,85 @@ New connection → `backfill` job imports a bounded window (e.g., 90 days of ema
 
 ---
 
-## 9. Delivery Phasing
+## 9. Multi-Tenancy (SaaS pivot)
+
+### 9.1 Tenancy model
+
+Single database, shared schema, row-level isolation. Every tenant-owned
+table carries a non-null `tenant_id`, and every *natural key* is scoped by
+it — `(tenant_id, source, external_id)` on the ledger, `(tenant_id, email)`
+on the identity cache — so two tenants ingesting the same recording id or
+caching the same prospect email never collide. Four rules, enforced in
+review:
+
+1. Every tenant-owned table has a non-null `tenant_id` FK.
+2. Every unique constraint is tenant-scoped.
+3. Every query filters by `tenant_id`, taken from server-side state (a
+   ledger row, a connection row, the session) — never from client input.
+   Webhook path segments (e.g. `/api/webhooks/claap/{tenantId}`) are
+   routing only; trust comes from verifying that tenant's own secret.
+4. Defense in depth: enable Postgres RLS so a missed WHERE fails closed:
+
+```sql
+ALTER TABLE interactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON interactions
+  USING (tenant_id = current_setting('app.tenant_id')::uuid);
+-- repeat per tenant-owned table; the app sets
+-- SET LOCAL app.tenant_id = '...' at transaction start.
+```
+
+The job layer is tenant-aware too: the reconciler's `concurrency` and
+`throttle` are keyed by `tenantId`, so each tenant gets exactly one writer
+against their own Pipedrive (whose rate budget is per company) and one
+noisy tenant can never starve another. `connections.(provider, account_ref)`
+is globally unique so a Pub/Sub notification — which carries only a mailbox
+address — always routes to exactly one tenant.
+
+### 9.2 Credentials
+
+One `connections` table holds every per-tenant grant as AES-256-GCM
+encrypted JSON (`credential_ciphertext`), keyed by `TOKEN_ENCRYPTION_KEY`
+(env/KMS): `{refreshToken}` for Google, `{apiToken, domain}` for Pipedrive,
+`{apiKey, webhookSecret}` for Claap. Handling rules: decrypt at the moment
+of use inside the consuming closure; never log plaintext; **never return a
+decrypted credential from an Inngest `step.run`** (step returns persist in
+Inngest's run state). Env vars are platform-level only — if a value is
+per-customer, it lives in a table.
+
+### 9.3 OAuth & onboarding flows
+
+**App auth (who is this user?):** Auth.js (NextAuth v5) with a `users` +
+`memberships(user, tenant, role)` model. Standard sign-in (Google OIDC
+and/or email); the session carries the active `tenantId`, which is how
+dashboard/API queries get their tenant filter.
+
+**Google Workspace connect (data access — separate from sign-in):** a
+distinct "Connect Gmail" flow requesting `gmail.readonly` (+
+`calendar.readonly` in Phase 3) with `access_type=offline` +
+`prompt=consent` so a refresh token is always issued. The callback encrypts
+the refresh token into `connections`, calls `users.watch()`, and seeds the
+`watch_channels` row — from there the renewal cron and history sync own the
+lifecycle. One Google OAuth app serves all tenants; the refresh token is
+what scopes each connection to a mailbox. Keep sign-in and data-connect as
+separate OAuth grants: sign-in should not demand mailbox scopes, and
+Google's app verification is simpler when the sensitive scopes live on the
+dedicated flow.
+
+**Pipedrive connect:** for a commercial product, register a Pipedrive
+Marketplace OAuth app (authorization-code flow) rather than collecting
+personal API tokens — tokens are scoped, refreshable, and revocable, and
+the callback tells us the company domain. Store
+`{accessToken, refreshToken, domain}` in `connections` (the client already
+reads credentials per call, so adding refresh-on-401 is localized). Manual
+API-token entry remains a fallback for pilots. Immediately after connect,
+fetch `GET /v1/dealFields` and present the field-mapping screen that
+populates `field_mappings`.
+
+**Claap connect:** tenant pastes their API key; we generate their webhook
+URL (`/api/webhooks/claap/{tenantId}`) and a webhook secret, stored
+encrypted; they register both in Claap.
+
+## 10. Delivery Phasing
 
 1. **Phase 1 — Calls end-to-end:** Claap webhook → ledger → extraction → Pipedrive notes/activities + BANT fields. Proves the durable pipeline with the simplest source. Immediate visible value in Pipedrive.
 2. **Phase 2 — Gmail:** watch lifecycle, history sync, thread debouncing, identity resolution at scale. The hardest source; the reconciliation plane matures here.

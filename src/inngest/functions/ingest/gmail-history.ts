@@ -1,8 +1,12 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
-import { connections, interactions, watchChannels } from "@/lib/db/schema";
-import { internalDomains } from "@/lib/env";
+import {
+  connections,
+  interactions,
+  tenants,
+  watchChannels,
+} from "@/lib/db/schema";
 import {
   boundedResync,
   getMessage,
@@ -29,6 +33,11 @@ const FETCH_BATCH_SIZE = 20;
  * collapsed notifications cannot skip messages — any later ping (or the
  * reconciliation sweep) picks up everything since the last successful sync.
  *
+ * Multi-tenant: the mailbox address routes to exactly one tenant via the
+ * globally-unique (provider, account_ref) index on connections; the
+ * tenant's own internalDomains drive the relevance filter, and every ledger
+ * row carries tenantId.
+ *
  * debounce collapses Gmail's notification bursts (one email can fire
  * several pings); concurrency serializes per mailbox so cursor advances
  * never race.
@@ -45,15 +54,18 @@ export const gmailHistory = inngest.createFunction(
     const ctx = await step.run("load-connection", async () => {
       const [row] = await db
         .select({
+          tenantId: connections.tenantId,
+          internalDomains: tenants.internalDomains,
           connection: {
             id: connections.id,
-            email: connections.email,
-            refreshTokenCiphertext: connections.refreshTokenCiphertext,
+            accountRef: connections.accountRef,
+            credentialCiphertext: connections.credentialCiphertext,
           },
           channelId: watchChannels.id,
           cursor: watchChannels.cursor,
         })
         .from(connections)
+        .innerJoin(tenants, eq(tenants.id, connections.tenantId))
         .innerJoin(
           watchChannels,
           and(
@@ -63,14 +75,16 @@ export const gmailHistory = inngest.createFunction(
         )
         .where(
           and(
-            eq(connections.email, event.data.emailAddress),
+            eq(connections.provider, "google"),
+            eq(connections.accountRef, event.data.emailAddress),
             eq(connections.status, "active"),
+            eq(tenants.status, "active"),
           ),
         )
         .limit(1);
 
       if (row) {
-        // Heartbeat for the Phase 2b reconcile-sweep: a mailbox that stops
+        // Heartbeat for the reconcile-sweep: a mailbox that stops
         // notifying gets a proactive delta pull.
         await db
           .update(watchChannels)
@@ -86,6 +100,10 @@ export const gmailHistory = inngest.createFunction(
       });
       return { skipped: "no active connection" };
     }
+
+    const internalDomainSet = new Set(
+      ctx.internalDomains.map((d) => d.toLowerCase()),
+    );
 
     // Delta pull — or bounded resync when the cursor is stale or missing.
     const delta = await step.run("list-history", async () => {
@@ -118,11 +136,12 @@ export const gmailHistory = inngest.createFunction(
         let count = 0;
         for (const messageId of batch) {
           const message = await getMessage(ctx.connection, messageId);
-          if (!message || !shouldIngest(message)) continue;
+          if (!message || !shouldIngest(message, internalDomainSet)) continue;
 
           const inserted = await db
             .insert(interactions)
             .values({
+              tenantId: ctx.tenantId,
               source: "gmail",
               externalId: message.id,
               kind: "email",
@@ -172,7 +191,7 @@ export const gmailHistory = inngest.createFunction(
  * CRM-relevance filter. Two hard rules from the architecture:
  *
  *   1. Internal-only threads are noise — at least one correspondent must be
- *      outside INTERNAL_EMAIL_DOMAINS.
+ *      outside the TENANT's internalDomains.
  *   2. Automated/bulk mail is noise — List-Unsubscribe or Precedence:
  *      bulk/list headers, or a no-reply sender, mean a machine wrote it.
  *
@@ -180,7 +199,10 @@ export const gmailHistory = inngest.createFunction(
  * beyond that: a false positive costs one harmless ledger row, a false
  * negative silently loses relationship history.
  */
-export function shouldIngest(message: GmailMessage): boolean {
+export function shouldIngest(
+  message: GmailMessage,
+  internalDomainSet: Set<string>,
+): boolean {
   const skipLabels = ["DRAFT", "CHAT", "SPAM", "TRASH"];
   if (message.labelIds.some((l) => skipLabels.includes(l))) return false;
 
@@ -192,11 +214,10 @@ export function shouldIngest(message: GmailMessage): boolean {
     return false;
   }
 
-  // Internal-only thread: every correspondent is on one of our domains.
-  const internal = internalDomains();
+  // Internal-only thread: every correspondent is on a tenant domain.
   const hasExternal = message.participants.some((p) => {
     const domain = p.email.split("@")[1]?.toLowerCase();
-    return domain && !internal.has(domain);
+    return domain && !internalDomainSet.has(domain);
   });
   if (!hasExternal) return false;
 

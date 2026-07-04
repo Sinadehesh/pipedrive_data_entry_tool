@@ -1,21 +1,34 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { getConnection } from "@/lib/connections";
 import { db } from "@/lib/db/client";
 import { rawEvents } from "@/lib/db/schema";
-import { env } from "@/lib/env";
 import { inngest } from "@/inngest/client";
 
 /**
- * The "dumb edge": verify → persist raw → enqueue → 200. No transcript
- * fetching, no LLM, no Pipedrive calls. Everything heavy happens in durable
- * Inngest functions, so this handler always answers in well under a second
- * and Claap never sees a timeout.
+ * Tenant-scoped Claap webhook: each tenant registers
+ * `/api/webhooks/claap/{tenantId}` in THEIR Claap workspace, and the
+ * signature is verified against THAT tenant's stored webhook secret — so
+ * the path segment is only routing, never trust: a request for tenant A
+ * signed with tenant B's secret fails verification.
+ *
+ * Still the "dumb edge": verify -> persist raw -> enqueue -> 200.
  */
-export async function POST(req: Request) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ tenantId: string }> },
+) {
+  const { tenantId } = await params;
   const raw = await req.text();
 
+  const claap = await getConnection(tenantId, "claap");
+  if (!claap) {
+    // Unknown tenant or no Claap connection — don't reveal which.
+    return new Response("unknown webhook", { status: 404 });
+  }
+
   const signature = req.headers.get("x-claap-signature");
-  if (!verifySignature(raw, signature)) {
+  if (!verifySignature(raw, signature, claap.credential.webhookSecret)) {
     return new Response("invalid signature", { status: 401 });
   }
 
@@ -32,11 +45,13 @@ export async function POST(req: Request) {
   }
 
   // Persist the verbatim payload BEFORE enqueueing: even a total job-layer
-  // outage loses nothing — events are re-emittable from raw_events.
-  // The unique (source, external_id) index makes webhook redelivery a no-op.
+  // outage loses nothing — events are re-emittable from raw_events. The
+  // tenant-scoped unique (tenant, source, external_id) index makes webhook
+  // redelivery a no-op.
   const [inserted] = await db
     .insert(rawEvents)
     .values({
+      tenantId,
       source: "claap",
       externalId: event.id,
       payload: event,
@@ -48,6 +63,7 @@ export async function POST(req: Request) {
     await inngest.send({
       name: "claap/recording.completed",
       data: {
+        tenantId,
         recordingId: event.data.recording_id,
         rawEventId: inserted.id,
       },
@@ -63,11 +79,13 @@ type ClaapWebhookEvent = {
   data?: { recording_id?: string };
 };
 
-function verifySignature(rawBody: string, signature: string | null): boolean {
+function verifySignature(
+  rawBody: string,
+  signature: string | null,
+  secret: string,
+): boolean {
   if (!signature) return false;
-  const expected = createHmac("sha256", env().CLAAP_WEBHOOK_SECRET)
-    .update(rawBody)
-    .digest("hex");
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   const a = Buffer.from(signature);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);

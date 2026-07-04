@@ -17,6 +17,7 @@ export const drainOutbox = inngest.createFunction(
     const due = await step.run("find-due-rows", async () => {
       const rows = await db
         .select({
+          tenantId: syncOutbox.tenantId,
           interactionId: syncOutbox.interactionId,
           extractionId: syncOutbox.extractionId,
         })
@@ -39,6 +40,7 @@ export const drainOutbox = inngest.createFunction(
         due.map((r) => ({
           name: "sync/extraction.ready" as const,
           data: {
+            tenantId: r.tenantId,
             interactionId: r.interactionId,
             extractionId: r.extractionId,
           },

@@ -1,30 +1,28 @@
 import { z } from "zod";
 
+/**
+ * Platform-level configuration only. Anything tenant-specific — Pipedrive
+ * tokens and field keys, Claap keys and webhook secrets, Google refresh
+ * tokens, internal email domains — lives in the database (`connections`,
+ * `field_mappings`, `tenants`), encrypted where secret. If you're about to
+ * add a per-customer value here, it belongs in a table instead.
+ */
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
 
-  CLAAP_API_KEY: z.string().min(1),
-  CLAAP_WEBHOOK_SECRET: z.string().min(1),
-
-  PIPEDRIVE_DOMAIN: z.string().min(1),
-  PIPEDRIVE_API_TOKEN: z.string().min(1),
-  PIPEDRIVE_FIELD_BANT_BUDGET: z.string().optional().default(""),
-  PIPEDRIVE_FIELD_BANT_AUTHORITY: z.string().optional().default(""),
-  PIPEDRIVE_FIELD_BANT_NEED: z.string().optional().default(""),
-  PIPEDRIVE_FIELD_BANT_TIMELINE: z.string().optional().default(""),
-
   ANTHROPIC_API_KEY: z.string().min(1),
 
-  // Google Workspace ingestion (Phase 2). Optional at parse time so Phase 1
-  // paths keep working without them; google/auth.ts asserts at use time.
+  // OUR Google OAuth app (one app serves every tenant's mailboxes).
   GOOGLE_CLIENT_ID: z.string().optional().default(""),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(""),
+  // One Pub/Sub topic serves all tenants; notifications are routed to a
+  // tenant by mailbox address via the connections table.
   GMAIL_PUBSUB_TOPIC: z.string().optional().default(""),
   PUBSUB_PUSH_SERVICE_ACCOUNT: z.string().optional().default(""),
   PUBSUB_PUSH_AUDIENCE: z.string().optional().default(""),
-  TOKEN_ENCRYPTION_KEY: z.string().optional().default(""),
 
-  INTERNAL_EMAIL_DOMAINS: z.string().optional().default(""),
+  // Encrypts every tenant credential at rest (AES-256-GCM).
+  TOKEN_ENCRYPTION_KEY: z.string().optional().default(""),
 });
 
 // Validated lazily so `next build` and drizzle-kit can run without a full env.
@@ -35,13 +33,4 @@ export function env(): z.infer<typeof envSchema> {
     cached = envSchema.parse(process.env);
   }
   return cached;
-}
-
-export function internalDomains(): Set<string> {
-  return new Set(
-    env()
-      .INTERNAL_EMAIL_DOMAINS.split(",")
-      .map((d) => d.trim().toLowerCase())
-      .filter(Boolean),
-  );
 }

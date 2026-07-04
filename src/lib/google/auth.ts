@@ -2,12 +2,18 @@ import { OAuth2Client } from "google-auth-library";
 import { google, type gmail_v1 } from "googleapis";
 
 import { decryptSecret } from "@/lib/crypto";
-import type { connections } from "@/lib/db/schema";
+import type { connections, GoogleCredential } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 
-export type Connection = Pick<
+/**
+ * A tenant's Google connection row. `credentialCiphertext` decrypts to a
+ * GoogleCredential ({refreshToken}) at the moment a client is built — the
+ * plaintext never leaves this module and is never returned from an Inngest
+ * step.
+ */
+export type GoogleConnection = Pick<
   typeof connections.$inferSelect,
-  "id" | "email" | "refreshTokenCiphertext"
+  "id" | "accountRef" | "credentialCiphertext"
 >;
 
 export function googleEnv() {
@@ -31,19 +37,21 @@ export function googleEnv() {
 }
 
 /**
- * OAuth client bound to one mailbox's refresh token. google-auth-library
- * transparently mints/refreshes access tokens per request, so callers never
- * see token expiry.
+ * OAuth client bound to one mailbox's refresh token (our single OAuth app
+ * serves every tenant; the refresh token is what scopes it to a mailbox).
+ * google-auth-library transparently mints/refreshes access tokens per
+ * request, so callers never see token expiry.
  */
-export function oauthClientFor(connection: Connection): OAuth2Client {
+export function oauthClientFor(connection: GoogleConnection): OAuth2Client {
   const { clientId, clientSecret } = googleEnv();
+  const credential = JSON.parse(
+    decryptSecret(connection.credentialCiphertext),
+  ) as GoogleCredential;
   const client = new OAuth2Client(clientId, clientSecret);
-  client.setCredentials({
-    refresh_token: decryptSecret(connection.refreshTokenCiphertext),
-  });
+  client.setCredentials({ refresh_token: credential.refreshToken });
   return client;
 }
 
-export function gmailFor(connection: Connection): gmail_v1.Gmail {
+export function gmailFor(connection: GoogleConnection): gmail_v1.Gmail {
   return google.gmail({ version: "v1", auth: oauthClientFor(connection) });
 }

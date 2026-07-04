@@ -1,7 +1,8 @@
+import { and, eq } from "drizzle-orm";
 import { OAuth2Client } from "google-auth-library";
 
 import { db } from "@/lib/db/client";
-import { rawEvents } from "@/lib/db/schema";
+import { connections, rawEvents } from "@/lib/db/schema";
 import { googleEnv } from "@/lib/google/auth";
 import { inngest } from "@/inngest/client";
 
@@ -72,12 +73,31 @@ export async function POST(req: Request) {
     return new Response(null, { status: 200 });
   }
 
-  // 3. Persist the raw envelope before enqueueing (replay source of last
+  // 3. Route the mailbox to its tenant. The (provider, account_ref) unique
+  //    index guarantees at most one owner; a notification for a mailbox no
+  //    tenant owns is acked and dropped.
+  const emailAddress = notification.emailAddress.toLowerCase();
+  const [owner] = await db
+    .select({ tenantId: connections.tenantId })
+    .from(connections)
+    .where(
+      and(
+        eq(connections.provider, "google"),
+        eq(connections.accountRef, emailAddress),
+      ),
+    )
+    .limit(1);
+  if (!owner) {
+    return new Response(null, { status: 200 });
+  }
+
+  // 4. Persist the raw envelope before enqueueing (replay source of last
   //    resort). Pub/Sub's messageId dedupes redeliveries: on conflict we've
   //    already enqueued this ping once, so ack without re-sending.
   const [inserted] = await db
     .insert(rawEvents)
     .values({
+      tenantId: owner.tenantId,
       source: "gmail",
       externalId: message.messageId,
       payload: { message: { ...message, data: undefined }, notification },
@@ -89,7 +109,7 @@ export async function POST(req: Request) {
     await inngest.send({
       name: "google/gmail.notified",
       data: {
-        emailAddress: notification.emailAddress.toLowerCase(),
+        emailAddress,
         notifiedHistoryId: String(notification.historyId),
       },
     });

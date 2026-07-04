@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1783182222928,
-      "tag": "0000_mysterious_the_santerians",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1783191622721,
-      "tag": "0001_light_scourge",
+      "when": 1783192285304,
+      "tag": "0000_famous_centennial",
       "breakpoints": true
     }
   ]

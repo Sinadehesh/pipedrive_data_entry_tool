@@ -31,8 +31,8 @@ export const renewWatches = inngest.createFunction(
           expiresAt: watchChannels.expiresAt,
           connection: {
             id: connections.id,
-            email: connections.email,
-            refreshTokenCiphertext: connections.refreshTokenCiphertext,
+            accountRef: connections.accountRef,
+            credentialCiphertext: connections.credentialCiphertext,
           },
         })
         .from(watchChannels)
@@ -56,7 +56,7 @@ export const renewWatches = inngest.createFunction(
     // renewals behind it.
     for (const channel of expiring) {
       const ok = await step.run(
-        `renew-${channel.connection.email}`,
+        `renew-${channel.connection.accountRef}`,
         async () => {
           try {
             const watch = await startWatch(channel.connection);
@@ -92,7 +92,7 @@ export const renewWatches = inngest.createFunction(
         },
       );
       if (ok) renewed++;
-      else failures.push(channel.connection.email);
+      else failures.push(channel.connection.accountRef);
     }
 
     if (failures.length > 0) {

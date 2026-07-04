@@ -1,18 +1,27 @@
-import { env } from "@/lib/env";
-
 /**
- * Thin fetch wrapper over the Pipedrive API.
+ * Thin fetch wrapper over the Pipedrive API, parameterized per tenant.
  *
- * Rate limiting is Pipedrive's token-budget model (a daily pool per company
- * plus burst limits). The budget is protected at two layers:
- *   1. The reconciler runs behind Inngest concurrency (single "pipedrive"
- *      key) + throttle, so calls are serialized and paced.
+ * Every call takes a `PipedriveAccount` (the tenant's own domain + API
+ * token, decrypted from `connections` at call time) — there is no global
+ * Pipedrive credential.
+ *
+ * Rate limiting is Pipedrive's token-budget model (a daily pool PER COMPANY
+ * plus burst limits), so budgets are isolated per tenant and protected at
+ * two layers:
+ *   1. The reconciler runs behind Inngest concurrency + throttle KEYED BY
+ *      TENANT — one writer per tenant, paced per tenant, and one noisy
+ *      tenant can never starve another.
  *   2. A 429 here raises PipedriveRateLimitError carrying retry-after; the
  *      reconciler defers the outbox row instead of dropping it.
  *
  * v2 endpoints are used wherever they exist (cheaper token cost than v1);
  * notes are still v1-only.
  */
+export type PipedriveAccount = {
+  domain: string; // {domain}.pipedrive.com
+  apiToken: string;
+};
+
 export class PipedriveRateLimitError extends Error {
   constructor(public retryAfterSeconds: number) {
     super(`Pipedrive rate limited; retry after ${retryAfterSeconds}s`);
@@ -32,11 +41,12 @@ export class PipedriveApiError extends Error {
 }
 
 export async function pipedrive<T>(
+  account: PipedriveAccount,
   method: "GET" | "POST" | "PATCH",
   path: string, // e.g. "/api/v2/persons/search"
   opts: { query?: Record<string, string>; body?: unknown } = {},
 ): Promise<T> {
-  const url = new URL(`https://${env().PIPEDRIVE_DOMAIN}.pipedrive.com${path}`);
+  const url = new URL(`https://${account.domain}.pipedrive.com${path}`);
   for (const [k, v] of Object.entries(opts.query ?? {})) {
     url.searchParams.set(k, v);
   }
@@ -44,7 +54,7 @@ export async function pipedrive<T>(
   const res = await fetch(url, {
     method,
     headers: {
-      "x-api-token": env().PIPEDRIVE_API_TOKEN,
+      "x-api-token": account.apiToken,
       ...(opts.body ? { "content-type": "application/json" } : {}),
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,

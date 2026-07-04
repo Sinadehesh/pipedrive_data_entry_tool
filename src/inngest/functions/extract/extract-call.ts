@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { chunkTranscript } from "@/lib/ai/chunking";
 import {
@@ -11,6 +11,7 @@ import {
   overallConfidence,
 } from "@/lib/ai/schemas";
 import { getTranscript } from "@/lib/claap/client";
+import { requireConnection } from "@/lib/connections";
 import { db } from "@/lib/db/client";
 import { extractions, interactions, syncOutbox } from "@/lib/db/schema";
 import { inngest } from "@/inngest/client";
@@ -23,26 +24,37 @@ import { inngest } from "@/inngest/client";
  * and skips finished ones. A 3-minute logical job therefore never comes near
  * a platform timeout, and a transient Anthropic 429/529 retries only the
  * step that failed, without recomputing (or re-billing) completed chunks.
+ *
+ * Multi-tenant: tenantId rides the event (originating from the verified
+ * per-tenant webhook), every ledger write carries it, and the Claap API key
+ * is the TENANT's own, decrypted inside the fetch step.
  */
 export const extractCall = inngest.createFunction(
   {
     id: "extract-call",
     retries: 3,
-    // Caps parallel LLM spend when a burst of calls ends at once.
-    concurrency: { limit: 5 },
+    // Caps parallel LLM spend per tenant when a burst of calls ends at once.
+    concurrency: { key: "event.data.tenantId", limit: 5 },
     onFailure: async ({ event, error }) => {
       // Retries exhausted: record a failed extraction version so the
       // interaction is visibly stuck (and replayable) rather than silently
       // lost. The ledger row itself is untouched.
-      const { recordingId } = event.data.event.data;
+      const { tenantId, recordingId } = event.data.event.data;
       const [interaction] = await db
         .select({ id: interactions.id })
         .from(interactions)
-        .where(eq(interactions.externalId, recordingId))
+        .where(
+          and(
+            eq(interactions.tenantId, tenantId),
+            eq(interactions.source, "claap"),
+            eq(interactions.externalId, recordingId),
+          ),
+        )
         .limit(1);
       if (!interaction) return;
 
       await db.insert(extractions).values({
+        tenantId,
         interactionId: interaction.id,
         version: await nextVersion(interaction.id),
         model: EXTRACTION_MODEL_ID,
@@ -53,17 +65,23 @@ export const extractCall = inngest.createFunction(
   },
   { event: "claap/recording.completed" },
   async ({ event, step }) => {
-    // ~2s: pull the transcript from Claap.
-    const transcript = await step.run("fetch-transcript", () =>
-      getTranscript(event.data.recordingId),
-    );
+    const { tenantId } = event.data;
 
-    // Idempotent ledger write: unique (source, external_id) means a
+    // ~2s: pull the transcript with the tenant's own Claap key. The key is
+    // decrypted inside the step and never leaves it — only the transcript
+    // (non-secret) is memoized.
+    const transcript = await step.run("fetch-transcript", async () => {
+      const claap = await requireConnection(tenantId, "claap");
+      return getTranscript(claap.credential, event.data.recordingId);
+    });
+
+    // Idempotent ledger write: unique (tenant, source, external_id) means a
     // redelivered webhook or a function retry can never duplicate the row.
     const interaction = await step.run("write-ledger", async () => {
       await db
         .insert(interactions)
         .values({
+          tenantId,
           source: "claap",
           externalId: transcript.recordingId,
           kind: "call",
@@ -78,7 +96,13 @@ export const extractCall = inngest.createFunction(
       const [row] = await db
         .select({ id: interactions.id })
         .from(interactions)
-        .where(eq(interactions.externalId, transcript.recordingId))
+        .where(
+          and(
+            eq(interactions.tenantId, tenantId),
+            eq(interactions.source, "claap"),
+            eq(interactions.externalId, transcript.recordingId),
+          ),
+        )
         .limit(1);
       return row;
     });
@@ -116,6 +140,7 @@ export const extractCall = inngest.createFunction(
       const [row] = await db
         .insert(extractions)
         .values({
+          tenantId,
           interactionId: interaction.id,
           version,
           model: EXTRACTION_MODEL_ID,
@@ -129,7 +154,8 @@ export const extractCall = inngest.createFunction(
         .returning({ id: extractions.id, status: extractions.status });
 
       // Notes are append-only and always safe — enqueued unconditionally.
-      // Field updates only for auto-approved extractions (confidence gate).
+      // Field updates only for auto-approved extractions (confidence gate;
+      // the tenant's field_mappings then decide what actually gets written).
       const ops = [
         {
           op: "create_note" as const,
@@ -149,6 +175,7 @@ export const extractCall = inngest.createFunction(
         .insert(syncOutbox)
         .values(
           ops.map(({ op, idempotencyKey }) => ({
+            tenantId,
             interactionId: interaction.id,
             extractionId: row.id,
             op,
@@ -161,10 +188,11 @@ export const extractCall = inngest.createFunction(
       return row;
     });
 
-    // Hand off to the rate-limit-aware reconciler.
+    // Hand off to the per-tenant rate-limit-aware reconciler.
     await step.sendEvent("enqueue-sync", {
       name: "sync/extraction.ready",
       data: {
+        tenantId,
         interactionId: interaction.id,
         extractionId: extraction.id,
       },
