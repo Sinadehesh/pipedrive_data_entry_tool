@@ -23,6 +23,17 @@ const envSchema = z.object({
 
   // Encrypts every tenant credential at rest (AES-256-GCM).
   TOKEN_ENCRYPTION_KEY: z.string().optional().default(""),
+
+  // Auth.js session signing (openssl rand -base64 32). Read automatically
+  // by next-auth; listed here so a missing value fails loudly at parse.
+  AUTH_SECRET: z.string().optional().default(""),
+
+  // OUR Pipedrive Marketplace OAuth app (one app serves every tenant).
+  PIPEDRIVE_CLIENT_ID: z.string().optional().default(""),
+  PIPEDRIVE_CLIENT_SECRET: z.string().optional().default(""),
+
+  // Public origin, e.g. https://app.example.com — builds OAuth redirect URIs.
+  APP_URL: z.string().optional().default(""),
 });
 
 // Validated lazily so `next build` and drizzle-kit can run without a full env.

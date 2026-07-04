@@ -19,7 +19,9 @@
  */
 export type PipedriveAccount = {
   domain: string; // {domain}.pipedrive.com
-  apiToken: string;
+  auth:
+    | { type: "api_token"; token: string } // pasted token, x-api-token header
+    | { type: "bearer"; token: string }; // Marketplace OAuth access token
 };
 
 export class PipedriveRateLimitError extends Error {
@@ -54,7 +56,9 @@ export async function pipedrive<T>(
   const res = await fetch(url, {
     method,
     headers: {
-      "x-api-token": account.apiToken,
+      ...(account.auth.type === "bearer"
+        ? { authorization: `Bearer ${account.auth.token}` }
+        : { "x-api-token": account.auth.token }),
       ...(opts.body ? { "content-type": "application/json" } : {}),
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,

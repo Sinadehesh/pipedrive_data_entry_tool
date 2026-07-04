@@ -8,6 +8,13 @@
       "when": 1783192285304,
       "tag": "0000_famous_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783193046265,
+      "tag": "0001_perfect_ulik",
+      "breakpoints": true
     }
   ]
 }

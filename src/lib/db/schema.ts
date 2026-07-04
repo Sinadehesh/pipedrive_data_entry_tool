@@ -40,6 +40,9 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { CallExtraction } from "@/lib/ai/schemas";
+import { users } from "./auth-schema";
+
+export * from "./auth-schema";
 
 // ---------------------------------------------------------------------------
 // Tenancy
@@ -65,6 +68,31 @@ export const tenants = pgTable("tenants", {
     .defaultNow(),
 });
 
+export const membershipRole = pgEnum("membership_role", ["owner", "member"]);
+
+/**
+ * Users (Auth.js, auth-schema.ts) belong to tenants through memberships.
+ * The session JWT carries the active tenantId resolved from here — it is
+ * the ONLY place a request's tenant may come from.
+ */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    role: membershipRole("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("memberships_user_tenant_uq").on(t.userId, t.tenantId)],
+);
+
 // ---------------------------------------------------------------------------
 // Connections — per-tenant third-party credentials
 // ---------------------------------------------------------------------------
@@ -87,7 +115,21 @@ export const connectionStatus = pgEnum("connection_status", [
  * since step returns are persisted in Inngest run state).
  */
 export type GoogleCredential = { refreshToken: string };
-export type PipedriveCredential = { apiToken: string; domain: string };
+/**
+ * Two auth shapes: Marketplace OAuth (Bearer tokens, refreshed by
+ * src/lib/pipedrive/account.ts) is the commercial path; a pasted API token
+ * (x-api-token, never expires) remains the pilot fallback.
+ */
+export type PipedriveCredential =
+  | { kind: "api_token"; domain: string; apiToken: string }
+  | {
+      kind: "oauth";
+      domain: string;
+      accessToken: string;
+      refreshToken: string;
+      /** ISO timestamp when accessToken expires. */
+      expiresAt: string;
+    };
 export type ClaapCredential = { apiKey: string; webhookSecret: string };
 
 export const connections = pgTable(

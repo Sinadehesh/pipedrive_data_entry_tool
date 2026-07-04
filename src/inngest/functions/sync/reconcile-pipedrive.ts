@@ -1,6 +1,5 @@
 import { and, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
-import { requireConnection } from "@/lib/connections";
 import { db } from "@/lib/db/client";
 import {
   extractions,
@@ -11,6 +10,7 @@ import {
   tenants,
 } from "@/lib/db/schema";
 import { resolveIdentity, type ResolvedIdentity } from "@/lib/identity/resolve";
+import { pipedriveAccountFor } from "@/lib/pipedrive/account";
 import {
   PipedriveRateLimitError,
   type PipedriveAccount,
@@ -136,7 +136,7 @@ export const reconcilePipedrive = inngest.createFunction(
     // same per-tenant serialized/throttled function. The tenant's account
     // is decrypted here, used, and dropped — only ids leave the step.
     const identity = await step.run("resolve-identity", async () => {
-      const account = await tenantPipedriveAccount(tenantId);
+      const account = await pipedriveAccountFor(tenantId);
       return resolveIdentity(
         tenantId,
         account,
@@ -148,7 +148,7 @@ export const reconcilePipedrive = inngest.createFunction(
     let synced = 0;
     for (const row of claimed) {
       await step.run(`op-${row.op}-${row.id}`, async () => {
-        const account = await tenantPipedriveAccount(tenantId);
+        const account = await pipedriveAccountFor(tenantId);
         await executeOp(row.id, row.op, tenantId, account, context, identity);
       });
       synced++;
@@ -157,21 +157,6 @@ export const reconcilePipedrive = inngest.createFunction(
     return { synced, dealId: identity?.dealId ?? null };
   },
 );
-
-/**
- * Decrypt the tenant's Pipedrive credential at the moment of use. Called
- * inside step executors so the plaintext token lives only for the duration
- * of that step's process — it is never serialized into Inngest state.
- */
-async function tenantPipedriveAccount(
-  tenantId: string,
-): Promise<PipedriveAccount> {
-  const conn = await requireConnection(tenantId, "pipedrive");
-  return {
-    domain: conn.credential.domain,
-    apiToken: conn.credential.apiToken,
-  };
-}
 
 // step.run() returns are JSON-serialized, so Date columns arrive as strings.
 type Context = {

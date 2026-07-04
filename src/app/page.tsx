@@ -1,11 +1,21 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
-    <main style={{ fontFamily: "system-ui", padding: "4rem" }}>
-      <h1>CRM Intelligence</h1>
-      <p>
-        Phase 1: Claap webhook → durable extraction → Pipedrive sync. Dashboard
-        lands in Phase 4 — see <code>ARCHITECTURE.md</code>.
+    <main className="mx-auto flex min-h-screen max-w-xl flex-col items-start justify-center gap-4 px-6">
+      <h1 className="text-2xl font-semibold tracking-tight">
+        CRM Intelligence
+      </h1>
+      <p className="text-slate-600">
+        Every call, email, and meeting — extracted and synced to Pipedrive
+        without your reps lifting a finger.
       </p>
+      <Link
+        href="/settings/sync"
+        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+      >
+        Open dashboard
+      </Link>
     </main>
   );
 }
