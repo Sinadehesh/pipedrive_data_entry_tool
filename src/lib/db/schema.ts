@@ -103,6 +103,7 @@ export const connectionProvider = pgEnum("connection_provider", [
   "google",
   "pipedrive",
   "claap",
+  "zoom",
 ]);
 
 export const connectionStatus = pgEnum("connection_status", [
@@ -133,6 +134,13 @@ export type PipedriveCredential =
       expiresAt: string;
     };
 export type ClaapCredential = { apiKey: string; webhookSecret: string };
+/**
+ * Zoom needs only the webhook secret token: transcript downloads use the
+ * short-lived download_token Zoom includes in each webhook delivery (kept
+ * in raw_events with the verbatim payload, never in Inngest state), so no
+ * server-to-server OAuth app is required.
+ */
+export type ZoomCredential = { webhookSecretToken: string };
 
 export const connections = pgTable(
   "connections",
@@ -346,6 +354,12 @@ export const interactions = pgTable(
     participants: jsonb("participants").$type<Participant[]>().notNull(),
     /** Full transcript / email body / meeting description. */
     content: text("content").notNull(),
+    /**
+     * Provider-side conversation grouping — the Gmail thread id today.
+     * Thread-level extraction loads every ledger row sharing a key so a
+     * five-reply exchange is analyzed once with full context.
+     */
+    threadKey: text("thread_key"),
     rawEventId: uuid("raw_event_id").references(() => rawEvents.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -358,6 +372,7 @@ export const interactions = pgTable(
       t.externalId,
     ),
     index("interactions_tenant_occurred_idx").on(t.tenantId, t.occurredAt),
+    index("interactions_tenant_thread_idx").on(t.tenantId, t.threadKey),
   ],
 );
 

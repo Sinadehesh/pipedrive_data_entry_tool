@@ -6,16 +6,12 @@ import {
   extractChunk,
   mergeExtractions,
 } from "@/lib/ai/extractor";
-import {
-  AUTO_WRITE_CONFIDENCE_FLOOR,
-  overallConfidence,
-} from "@/lib/ai/schemas";
 import { getTranscript } from "@/lib/claap/client";
 import { requireConnection } from "@/lib/connections";
 import { db } from "@/lib/db/client";
-import { extractions, interactions, syncOutbox } from "@/lib/db/schema";
-import { syncCompetitiveIntel } from "@/lib/intel";
+import { extractions, interactions } from "@/lib/db/schema";
 import { inngest } from "@/inngest/client";
+import { persistAndEnqueue } from "./persist";
 
 /**
  * The long-running LLM job, decomposed into checkpointed steps.
@@ -131,73 +127,16 @@ export const extractCall = inngest.createFunction(
       mergeExtractions(partials, { title: transcript.title }),
     );
 
-    // Persist the versioned extraction + enqueue outbox rows atomically-ish:
-    // outbox idempotency keys are derived from ledger identity, so a step
-    // retry can never enqueue the same write twice.
-    const extraction = await step.run("persist-and-enqueue", async () => {
-      const confidence = overallConfidence(merged);
-      const version = await nextVersion(interaction.id);
-
-      const [row] = await db
-        .insert(extractions)
-        .values({
-          tenantId,
-          interactionId: interaction.id,
-          version,
-          model: EXTRACTION_MODEL_ID,
-          payload: merged,
-          overallConfidence: confidence,
-          status:
-            confidence >= AUTO_WRITE_CONFIDENCE_FLOOR
-              ? "auto_approved"
-              : "needs_review",
-        })
-        .returning({ id: extractions.id, status: extractions.status });
-
-      // Notes are append-only and always safe — enqueued unconditionally.
-      // Field updates only for auto-approved extractions (confidence gate;
-      // the tenant's field_mappings then decide what actually gets written).
-      const ops = [
-        {
-          op: "create_note" as const,
-          idempotencyKey: `note:${interaction.id}:v${version}`,
-        },
-        ...(row.status === "auto_approved"
-          ? [
-              {
-                op: "update_deal_fields" as const,
-                idempotencyKey: `deal-fields:${interaction.id}:v${version}`,
-              },
-            ]
-          : []),
-      ];
-
-      await db
-        .insert(syncOutbox)
-        .values(
-          ops.map(({ op, idempotencyKey }) => ({
-            tenantId,
-            interactionId: interaction.id,
-            extractionId: row.id,
-            op,
-            payload: {},
-            idempotencyKey,
-          })),
-        )
-        .onConflictDoNothing();
-
-      // Competitor mentions -> the intel dashboard (not confidence-gated:
-      // intel is analytics, it never writes to the tenant's CRM).
-      await syncCompetitiveIntel({
+    // Shared tail: versioned extraction, confidence-gated outbox ops,
+    // intel sync — all conflict-safe inside one step (see persist.ts).
+    const extraction = await step.run("persist-and-enqueue", () =>
+      persistAndEnqueue({
         tenantId,
         interactionId: interaction.id,
-        extractionId: row.id,
         payload: merged,
         occurredAt: new Date(transcript.occurredAt),
-      });
-
-      return row;
-    });
+      }),
+    );
 
     // Hand off to the per-tenant rate-limit-aware reconciler.
     await step.sendEvent("enqueue-sync", {

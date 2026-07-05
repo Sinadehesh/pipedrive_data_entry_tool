@@ -15,6 +15,7 @@ import { env } from "@/lib/env";
 import { googleEnv, type GoogleConnection } from "@/lib/google/auth";
 import { startCalendarWatch } from "@/lib/google/calendar";
 import { startWatch as startGmailWatch } from "@/lib/google/gmail";
+import { inngest } from "@/inngest/client";
 
 /**
  * Google Workspace OAuth callback: verify state -> exchange code -> encrypt
@@ -134,6 +135,13 @@ export async function GET(req: Request) {
   } catch (err) {
     watchErrors.push(`gcal: ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  // Day-one completeness: import the last 90 days through the same
+  // ledger -> extract -> sync pipeline the live planes use.
+  await inngest.send({
+    name: "connection/backfill.requested",
+    data: { tenantId, connectionId, provider: "google", days: 90 },
+  });
 
   if (watchErrors.length > 0) {
     await db

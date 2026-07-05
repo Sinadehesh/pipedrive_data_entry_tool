@@ -125,8 +125,8 @@ export const calendarDelta = inngest.createFunction(
     const upserted = delta.events.filter((e) => e.status !== "cancelled");
 
     // Ledger externally-attended meetings (created/updated).
-    const ledgered = await step.run("ledger-meetings", async () => {
-      let count = 0;
+    const ledgeredIds = await step.run("ledger-meetings", async () => {
+      const ids: string[] = [];
       for (const ev of upserted) {
         const external = ev.attendees.some((a) => {
           const domain = a.email.split("@")[1]?.toLowerCase();
@@ -148,10 +148,11 @@ export const calendarDelta = inngest.createFunction(
           })
           .onConflictDoNothing()
           .returning({ id: interactions.id });
-        if (inserted.length > 0) count++;
+        if (inserted.length > 0) ids.push(inserted[0].id);
       }
-      return count;
+      return ids;
     });
+    const ledgered = ledgeredIds.length;
 
     // Cancellations -> negative deal risk. Google's cancelled stubs rarely
     // carry attendees, so we recover them from the meeting's own ledger row.
@@ -210,6 +211,17 @@ export const calendarDelta = inngest.createFunction(
         name: "sync/outbox.ready",
         data: { tenantId },
       });
+    }
+
+    // Hand newly-ledgered meetings to the meeting extractor.
+    if (ledgeredIds.length > 0) {
+      await step.sendEvent(
+        "notify-meetings",
+        ledgeredIds.map((interactionId) => ({
+          name: "gcal/meeting.ingested" as const,
+          data: { tenantId, interactionId },
+        })),
+      );
     }
 
     return {

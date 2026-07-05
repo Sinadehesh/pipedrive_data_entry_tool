@@ -87,10 +87,11 @@ export default async function SyncSettingsPage({
 
 // ---------------------------------------------------------------------------
 
+// Derived from the schema so new providers (zoom, ...) can't drift.
 type ConnectionRow = {
-  provider: "google" | "pipedrive" | "claap";
+  provider: (typeof connections.$inferSelect)["provider"];
   accountRef: string;
-  status: "active" | "error" | "revoked";
+  status: (typeof connections.$inferSelect)["status"];
   lastError: string | null;
 };
 

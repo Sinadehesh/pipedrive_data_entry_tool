@@ -1,19 +1,11 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { chunkTranscript } from "@/lib/ai/chunking";
-import {
-  EXTRACTION_MODEL_ID,
-  extractChunk,
-  mergeExtractions,
-} from "@/lib/ai/extractor";
-import {
-  AUTO_WRITE_CONFIDENCE_FLOOR,
-  overallConfidence,
-} from "@/lib/ai/schemas";
+import { extractChunk, mergeExtractions } from "@/lib/ai/extractor";
 import { db } from "@/lib/db/client";
-import { extractions, interactions, syncOutbox } from "@/lib/db/schema";
-import { syncCompetitiveIntel } from "@/lib/intel";
+import { interactions } from "@/lib/db/schema";
 import { inngest } from "@/inngest/client";
+import { persistAndEnqueue } from "./persist";
 
 /**
  * The payoff of the event-sourced ledger: re-run extraction for any
@@ -75,71 +67,14 @@ export const replayExtraction = inngest.createFunction(
       mergeExtractions(partials, { title: interaction.title }),
     );
 
-    const extraction = await step.run("persist-and-enqueue", async () => {
-      const confidence = overallConfidence(merged);
-
-      const [latest] = await db
-        .select({ version: extractions.version })
-        .from(extractions)
-        .where(eq(extractions.interactionId, interactionId))
-        .orderBy(desc(extractions.version))
-        .limit(1);
-      const version = (latest?.version ?? 0) + 1;
-
-      const [row] = await db
-        .insert(extractions)
-        .values({
-          tenantId,
-          interactionId,
-          version,
-          model: EXTRACTION_MODEL_ID,
-          payload: merged,
-          overallConfidence: confidence,
-          status:
-            confidence >= AUTO_WRITE_CONFIDENCE_FLOOR
-              ? "auto_approved"
-              : "needs_review",
-        })
-        .returning({ id: extractions.id, status: extractions.status });
-
-      const ops = [
-        {
-          op: "create_note" as const,
-          idempotencyKey: `note:${interactionId}:v${version}`,
-        },
-        ...(row.status === "auto_approved"
-          ? [
-              {
-                op: "update_deal_fields" as const,
-                idempotencyKey: `deal-fields:${interactionId}:v${version}`,
-              },
-            ]
-          : []),
-      ];
-      await db
-        .insert(syncOutbox)
-        .values(
-          ops.map(({ op, idempotencyKey }) => ({
-            tenantId,
-            interactionId,
-            extractionId: row.id,
-            op,
-            payload: {},
-            idempotencyKey,
-          })),
-        )
-        .onConflictDoNothing();
-
-      await syncCompetitiveIntel({
+    const extraction = await step.run("persist-and-enqueue", () =>
+      persistAndEnqueue({
         tenantId,
         interactionId,
-        extractionId: row.id,
         payload: merged,
         occurredAt: new Date(interaction.occurredAt),
-      });
-
-      return row;
-    });
+      }),
+    );
 
     await step.sendEvent("enqueue-sync", {
       name: "sync/extraction.ready",

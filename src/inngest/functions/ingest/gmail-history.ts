@@ -130,10 +130,12 @@ export const gmailHistory = inngest.createFunction(
     // Fetch + filter + ledger-write in batched checkpointed steps: a batch
     // that fails retries alone, and completed batches are never re-fetched.
     let ingested = 0;
+    const changedThreads = new Set<string>();
     for (let i = 0; i < delta.messageIds.length; i += FETCH_BATCH_SIZE) {
       const batch = delta.messageIds.slice(i, i + FETCH_BATCH_SIZE);
-      ingested += await step.run(`ingest-batch-${i}`, async () => {
+      const result = await step.run(`ingest-batch-${i}`, async () => {
         let count = 0;
+        const threadIds: string[] = [];
         for (const messageId of batch) {
           const message = await getMessage(ctx.connection, messageId);
           if (!message || !shouldIngest(message, internalDomainSet)) continue;
@@ -149,13 +151,19 @@ export const gmailHistory = inngest.createFunction(
               occurredAt: new Date(message.internalDate),
               participants: message.participants,
               content: message.bodyText,
+              threadKey: message.threadId,
             })
             .onConflictDoNothing()
             .returning({ id: interactions.id });
-          if (inserted.length > 0) count++;
+          if (inserted.length > 0) {
+            count++;
+            threadIds.push(message.threadId);
+          }
         }
-        return count;
+        return { count, threadIds };
       });
+      ingested += result.count;
+      for (const t of result.threadIds) changedThreads.add(t);
     }
 
     // Advance the cursor LAST — strictly after every ledger write above has
@@ -173,10 +181,17 @@ export const gmailHistory = inngest.createFunction(
         .where(eq(watchChannels.id, ctx.channelId)),
     );
 
-    // TODO(Phase 2b): emit a thread-debounced "gmail/thread.changed" event
-    // here so extract-email-thread analyzes the whole thread once per burst
-    // of replies, then flows into the same sync/extraction.ready path as
-    // calls.
+    // One event per changed thread. The extractor's debounce collapses
+    // reply bursts, so this stays cheap even on chatty threads.
+    if (changedThreads.size > 0) {
+      await step.sendEvent(
+        "notify-threads",
+        [...changedThreads].map((threadId) => ({
+          name: "gmail/thread.changed" as const,
+          data: { tenantId: ctx.tenantId, threadId },
+        })),
+      );
+    }
 
     return {
       ingested,

@@ -55,6 +55,43 @@ export const eventSchemas = {
     }),
   },
   /**
+   * A Gmail thread gained newly-ingested messages. Consumed by the
+   * DEBOUNCED thread extractor, so a burst of replies is analyzed once
+   * with full context instead of once per message.
+   */
+  "gmail/thread.changed": {
+    data: z.object({
+      tenantId: z.string().uuid(),
+      threadId: z.string(),
+    }),
+  },
+  /** A calendar meeting entered the ledger; extract signals from it. */
+  "gcal/meeting.ingested": {
+    data: z.object({
+      tenantId: z.string().uuid(),
+      interactionId: z.string().uuid(),
+    }),
+  },
+  /** A Zoom transcript-ready webhook was persisted; fetch and extract. */
+  "zoom/recording.ready": {
+    data: z.object({
+      tenantId: z.string().uuid(),
+      rawEventId: z.string().uuid(),
+    }),
+  },
+  /**
+   * Fired after a new connection is established: import a bounded window
+   * of history through the identical ledger -> extract -> sync path.
+   */
+  "connection/backfill.requested": {
+    data: z.object({
+      tenantId: z.string().uuid(),
+      connectionId: z.string().uuid(),
+      provider: z.enum(["google"]),
+      days: z.number().int().min(1).max(365).default(90),
+    }),
+  },
+  /**
    * Re-run LLM extraction for one interaction from the IMMUTABLE ledger —
    * no re-ingestion, no provider API calls. Appends a new extraction
    * version; history is never rewritten.

@@ -7,6 +7,7 @@ import {
   type ClaapCredential,
   type GoogleCredential,
   type PipedriveCredential,
+  type ZoomCredential,
 } from "@/lib/db/schema";
 
 /**
@@ -22,6 +23,7 @@ type ProviderCredential = {
   google: GoogleCredential;
   pipedrive: PipedriveCredential;
   claap: ClaapCredential;
+  zoom: ZoomCredential;
 };
 
 export async function getConnection<P extends keyof ProviderCredential>(
