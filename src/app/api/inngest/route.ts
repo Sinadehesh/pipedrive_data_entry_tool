@@ -3,7 +3,12 @@ import { serve } from "inngest/next";
 import { inngest } from "@/inngest/client";
 import { drainOutbox } from "@/inngest/functions/cron/drain-outbox";
 import { renewWatches } from "@/inngest/functions/cron/renew-watches";
+import {
+  stalenessCheck,
+  stalenessDispatch,
+} from "@/inngest/functions/cron/staleness-sweep";
 import { extractCall } from "@/inngest/functions/extract/extract-call";
+import { calendarDelta } from "@/inngest/functions/ingest/calendar-delta";
 import { gmailHistory } from "@/inngest/functions/ingest/gmail-history";
 import { reconcilePipedrive } from "@/inngest/functions/sync/reconcile-pipedrive";
 
@@ -17,8 +22,11 @@ export const { GET, POST, PUT } = serve({
   functions: [
     extractCall,
     gmailHistory,
+    calendarDelta,
     reconcilePipedrive,
     drainOutbox,
     renewWatches,
+    stalenessDispatch,
+    stalenessCheck,
   ],
 });

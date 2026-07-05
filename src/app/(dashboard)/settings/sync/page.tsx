@@ -157,6 +157,10 @@ const SIGNAL_LABELS = {
   bant_authority: { label: "Authority", hint: "Decision maker and presence" },
   bant_need: { label: "Need", hint: "The prospect's stated problem" },
   bant_timeline: { label: "Timeline", hint: "Target dates and slips" },
+  deal_risk: {
+    label: "Deal risk",
+    hint: "Stale deals & cancelled meetings (note fallback if unmapped)",
+  },
 } as const;
 
 type SignalKey = keyof typeof SIGNAL_LABELS;

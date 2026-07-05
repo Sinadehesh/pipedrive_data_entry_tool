@@ -26,7 +26,9 @@ export function buildDealFieldUpdate(
   extraction: CallExtraction,
   mappings: FieldMapping[],
 ): Record<string, string> {
-  const signals: Record<FieldMapping["signal"], Signal> = {
+  // Partial: not every mappable signal is extraction-driven (deal_risk is
+  // written by its own outbox op, not from a CallExtraction).
+  const signals: Partial<Record<FieldMapping["signal"], Signal>> = {
     bant_budget: extraction.bant.budget,
     bant_authority: extraction.bant.authority,
     bant_need: extraction.bant.need,

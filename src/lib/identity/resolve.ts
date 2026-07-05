@@ -60,6 +60,42 @@ export async function resolveIdentity(
   return null;
 }
 
+/**
+ * CACHE-ONLY resolution against the tenant's slice of identity_map — no
+ * Pipedrive calls, no person/org creation. Used by signals that should
+ * never create CRM records (a cancelled meeting must not mint contacts):
+ * if the attendees aren't already known prospects with a deal, there is no
+ * deal to flag and the signal is dropped.
+ */
+export async function lookupCachedIdentity(
+  tenantId: string,
+  participants: Participant[],
+  internalDomainSet: Set<string>,
+): Promise<ResolvedIdentity | null> {
+  for (const participant of participants) {
+    const email = normalizeEmail(participant.email);
+    const domain = email.split("@")[1];
+    if (!domain || internalDomainSet.has(domain)) continue;
+
+    const [cached] = await db
+      .select()
+      .from(identityMap)
+      .where(
+        and(eq(identityMap.tenantId, tenantId), eq(identityMap.email, email)),
+      )
+      .limit(1);
+    if (cached?.personId && cached.dealId) {
+      return {
+        email,
+        personId: cached.personId,
+        orgId: cached.orgId,
+        dealId: cached.dealId,
+      };
+    }
+  }
+  return null;
+}
+
 async function resolveOne(
   tenantId: string,
   account: PipedriveAccount,

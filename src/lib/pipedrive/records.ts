@@ -1,4 +1,8 @@
-import { pipedrive, type PipedriveAccount } from "./client";
+import {
+  pipedrive,
+  PipedriveApiError,
+  type PipedriveAccount,
+} from "./client";
 
 /** Typed helpers over the Pipedrive endpoints, per-tenant via `account`. */
 
@@ -76,6 +80,21 @@ export async function findOpenDealForPerson(
     },
   );
   return deals?.[0] ?? null;
+}
+
+export async function getDeal(
+  account: PipedriveAccount,
+  dealId: number,
+): Promise<{ id: number; status: "open" | "won" | "lost" | "deleted" } | null> {
+  try {
+    return await pipedrive<{
+      id: number;
+      status: "open" | "won" | "lost" | "deleted";
+    }>(account, "GET", `/api/v2/deals/${dealId}`);
+  } catch (err) {
+    if (err instanceof PipedriveApiError && err.status === 404) return null;
+    throw err;
+  }
 }
 
 export async function updateDealCustomFields(

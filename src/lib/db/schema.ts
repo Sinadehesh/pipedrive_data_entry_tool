@@ -59,6 +59,8 @@ export const tenants = pgTable("tenants", {
    * prospects). Replaces the old INTERNAL_EMAIL_DOMAINS env var.
    */
   internalDomains: jsonb("internal_domains").$type<string[]>().notNull().default([]),
+  /** Days without any interaction before an open deal is flagged stale. */
+  stalenessDays: integer("staleness_days").notNull().default(14),
   status: tenantStatus("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -181,6 +183,14 @@ export const watchChannels = pgTable(
       .references(() => connections.id),
     kind: text("kind", { enum: ["gmail", "gcal"] }).notNull(),
     cursor: text("cursor"),
+    /**
+     * Calendar channels only: the channel id WE generated for
+     * channels.watch (unguessable uuid — doubles as the webhook's
+     * authenticity token) and Google's resourceId (needed to stop the old
+     * channel on renewal). Gmail watches have neither.
+     */
+    externalChannelId: text("external_channel_id"),
+    externalResourceId: text("external_resource_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     lastNotifiedAt: timestamp("last_notified_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -207,6 +217,9 @@ export const mappableSignal = pgEnum("mappable_signal", [
   "bant_authority",
   "bant_need",
   "bant_timeline",
+  /** Risk flags (stale deal, cancelled meeting) — written to the mapped
+   *  field when configured, appended as a note otherwise. */
+  "deal_risk",
 ]);
 
 /**
@@ -267,7 +280,15 @@ export const outboxOp = pgEnum("outbox_op", [
   "create_note",
   "create_activity",
   "update_deal_fields",
+  "flag_deal_risk",
 ]);
+
+/** Payload of a `flag_deal_risk` outbox row. */
+export type DealRiskPayload = {
+  dealId: number;
+  reason: string;
+  source: "staleness" | "meeting_cancelled";
+};
 
 export const outboxStatus = pgEnum("outbox_status", [
   "pending",
@@ -376,12 +397,13 @@ export const syncOutbox = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    interactionId: uuid("interaction_id")
-      .notNull()
-      .references(() => interactions.id),
-    extractionId: uuid("extraction_id")
-      .notNull()
-      .references(() => extractions.id),
+    /**
+     * Nullable: extraction-driven ops (notes, field updates) reference the
+     * ledger; risk flags (staleness sweep, cancelled meetings) carry their
+     * target in `payload` instead.
+     */
+    interactionId: uuid("interaction_id").references(() => interactions.id),
+    extractionId: uuid("extraction_id").references(() => extractions.id),
     op: outboxOp("op").notNull(),
     payload: jsonb("payload").notNull(),
     /**

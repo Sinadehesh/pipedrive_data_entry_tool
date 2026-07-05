@@ -1,24 +1,39 @@
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, inArray, lte } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { connections, watchChannels } from "@/lib/db/schema";
-import { startWatch } from "@/lib/google/gmail";
+import {
+  startCalendarWatch,
+  stopCalendarWatch,
+} from "@/lib/google/calendar";
+import { startWatch as startGmailWatch } from "@/lib/google/gmail";
 import { inngest } from "@/inngest/client";
 
 /**
- * The heartbeat of the ingestion plane.
+ * The heartbeat of the ingestion plane, across ALL tenants.
  *
- * Gmail watches hard-expire after 7 days, and expiry is SILENT — no error,
- * no callback, notifications just stop. This cron runs every 6 hours and
- * re-arms every gmail channel expiring within the next 24, so a single
- * failed run still leaves three more attempts before any watch lapses.
+ * Google push channels expire SILENTLY — Gmail watches after 7 days,
+ * Calendar channels at a TTL Google chooses — with no error and no
+ * callback; notifications just stop. This cron runs every 6 hours and
+ * re-arms every gmail/gcal channel expiring within the next 24, so a
+ * single failed run still leaves three more attempts before any channel
+ * lapses.
  *
- * Renewal preserves the stored delta cursor: users.watch() returns the
- * mailbox's CURRENT historyId, and overwriting our cursor with it would
- * silently skip every message between the last sync and now. The watch
- * response's historyId is used only to seed channels that have no cursor
- * yet (first arm after OAuth connect).
+ * SaaS-scale isolation: each channel renews inside its OWN try/catch —
+ * one tenant's revoked grant or Google-side error records the failure on
+ * that channel/connection and the loop continues to the next tenant.
+ * Renewal work is batched into checkpointed steps so a crashed run resumes
+ * where it stopped instead of restarting the whole fleet.
+ *
+ * Cursor rule: renewal NEVER touches an existing delta cursor. Gmail's
+ * watch() returns the mailbox's current historyId and overwriting ours
+ * would silently skip everything since the last sync — it seeds only
+ * channels that have no cursor yet. Calendar renewal rotates the channel
+ * id/resourceId (stopping the superseded channel best-effort) and leaves
+ * the syncToken alone entirely.
  */
+const RENEW_BATCH_SIZE = 10;
+
 export const renewWatches = inngest.createFunction(
   { id: "renew-watches", retries: 2 },
   { cron: "0 */6 * * *" },
@@ -27,8 +42,10 @@ export const renewWatches = inngest.createFunction(
       db
         .select({
           channelId: watchChannels.id,
+          kind: watchChannels.kind,
           cursor: watchChannels.cursor,
-          expiresAt: watchChannels.expiresAt,
+          externalChannelId: watchChannels.externalChannelId,
+          externalResourceId: watchChannels.externalResourceId,
           connection: {
             id: connections.id,
             accountRef: connections.accountRef,
@@ -39,41 +56,36 @@ export const renewWatches = inngest.createFunction(
         .innerJoin(connections, eq(watchChannels.connectionId, connections.id))
         .where(
           and(
-            eq(watchChannels.kind, "gmail"),
+            inArray(watchChannels.kind, ["gmail", "gcal"]),
             eq(connections.status, "active"),
             lte(
               watchChannels.expiresAt,
               new Date(Date.now() + 24 * 60 * 60 * 1000),
             ),
           ),
-        ),
+        )
+        .orderBy(watchChannels.expiresAt),
     );
 
     let renewed = 0;
     const failures: string[] = [];
 
-    // One step per mailbox: a single revoked grant must not block the
-    // renewals behind it.
-    for (const channel of expiring) {
-      const ok = await step.run(
-        `renew-${channel.connection.accountRef}`,
-        async () => {
+    // Batched checkpointed steps: bounded invocation time per step at any
+    // fleet size, and completed batches never re-run after a crash.
+    for (let i = 0; i < expiring.length; i += RENEW_BATCH_SIZE) {
+      const batch = expiring.slice(i, i + RENEW_BATCH_SIZE);
+      const results = await step.run(`renew-batch-${i}`, async () => {
+        const out: { accountRef: string; kind: string; ok: boolean }[] = [];
+        for (const channel of batch) {
+          // Per-channel isolation: one failing tenant cannot halt the loop.
           try {
-            const watch = await startWatch(channel.connection);
-            await db
-              .update(watchChannels)
-              .set({
-                expiresAt: watch.expiresAt,
-                // Seed the cursor ONLY if we never had one; see docblock.
-                ...(channel.cursor ? {} : { cursor: watch.historyId }),
-                lastError: null,
-                updatedAt: new Date(),
-              })
-              .where(eq(watchChannels.id, channel.channelId));
-            return true;
+            await renewOne(channel);
+            out.push({
+              accountRef: channel.connection.accountRef,
+              kind: channel.kind,
+              ok: true,
+            });
           } catch (err) {
-            // Record the failure and flag the connection — this is the one
-            // place a dying integration becomes visible before data stops.
             const message = err instanceof Error ? err.message : String(err);
             await db
               .update(watchChannels)
@@ -83,25 +95,85 @@ export const renewWatches = inngest.createFunction(
               .update(connections)
               .set({
                 status: "error",
-                lastError: `watch renewal failed: ${message}`,
+                lastError: `${channel.kind} watch renewal failed: ${message}`,
                 updatedAt: new Date(),
               })
               .where(eq(connections.id, channel.connection.id));
-            return false;
+            out.push({
+              accountRef: channel.connection.accountRef,
+              kind: channel.kind,
+              ok: false,
+            });
           }
-        },
-      );
-      if (ok) renewed++;
-      else failures.push(channel.connection.accountRef);
+        }
+        return out;
+      });
+
+      for (const r of results) {
+        if (r.ok) renewed++;
+        else failures.push(`${r.kind}:${r.accountRef}`);
+      }
     }
 
     if (failures.length > 0) {
       // Surfaces in Inngest's run log/alerting; wire to Slack/pager later.
-      logger.error("watch renewal failures — ingestion will stop for these mailboxes", {
-        failures,
-      });
+      logger.error(
+        "watch renewal failures — ingestion will stop for these channels",
+        { failures },
+      );
     }
 
     return { checked: expiring.length, renewed, failed: failures };
   },
 );
+
+type ExpiringChannel = {
+  channelId: string;
+  kind: "gmail" | "gcal";
+  cursor: string | null;
+  externalChannelId: string | null;
+  externalResourceId: string | null;
+  connection: {
+    id: string;
+    accountRef: string;
+    credentialCiphertext: string;
+  };
+};
+
+async function renewOne(channel: ExpiringChannel): Promise<void> {
+  if (channel.kind === "gmail") {
+    const watch = await startGmailWatch(channel.connection);
+    await db
+      .update(watchChannels)
+      .set({
+        expiresAt: watch.expiresAt,
+        // Seed the cursor ONLY if we never had one; see docblock.
+        ...(channel.cursor ? {} : { cursor: watch.historyId }),
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(watchChannels.id, channel.channelId));
+    return;
+  }
+
+  // gcal: arm the replacement first, persist it, then stop the old channel
+  // (best-effort) — never a window with no live channel.
+  const watch = await startCalendarWatch(channel.connection);
+  await db
+    .update(watchChannels)
+    .set({
+      externalChannelId: watch.channelId,
+      externalResourceId: watch.resourceId,
+      expiresAt: watch.expiresAt,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(watchChannels.id, channel.channelId));
+  if (channel.externalChannelId && channel.externalResourceId) {
+    await stopCalendarWatch(
+      channel.connection,
+      channel.externalChannelId,
+      channel.externalResourceId,
+    );
+  }
+}
