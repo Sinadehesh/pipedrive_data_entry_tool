@@ -4,20 +4,24 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { auth } from "@/auth";
-import { db } from "@/lib/db/client";
+import { withTenant } from "@/lib/db/client";
 import { connections, fieldMappings } from "@/lib/db/schema";
+import { env } from "@/lib/env";
 import { pipedriveAccountFor } from "@/lib/pipedrive/account";
 import { listDealFields } from "@/lib/pipedrive/records";
-import { saveFieldMappings } from "./actions";
+import { connectClaap, connectZoom, saveFieldMappings } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Sync settings: connection health + the signal -> Pipedrive-field mapping
- * editor. Server components throughout; the only mutation is the
- * saveFieldMappings server action. Everything is scoped to the session's
- * tenantId — no client-supplied tenant anywhere on this page.
+ * MVP (v1.0) scope: CALL ingestion — Claap + Zoom — synced to Pipedrive.
+ * The Google Workspace plane (Gmail/Calendar ingestion, OAuth connect,
+ * watch lifecycle) is fully built but held out of the UI for launch; flip
+ * this to re-surface it. Server-side nothing is removed: without a google
+ * connection those pipelines simply never fire.
  */
+const GOOGLE_WORKSPACE_ENABLED = false;
+
 export default async function SyncSettingsPage({
   searchParams,
 }: {
@@ -28,22 +32,30 @@ export default async function SyncSettingsPage({
   const tenantId = session.tenantId;
   const params = await searchParams;
 
-  const rows = await db
-    .select({
-      provider: connections.provider,
-      accountRef: connections.accountRef,
-      status: connections.status,
-      lastError: connections.lastError,
-    })
-    .from(connections)
-    .where(eq(connections.tenantId, tenantId));
+  // All reads inside withTenant: RLS pins the transaction to this tenant.
+  const rows = await withTenant(tenantId, (tx) =>
+    tx
+      .select({
+        provider: connections.provider,
+        accountRef: connections.accountRef,
+        status: connections.status,
+        lastError: connections.lastError,
+      })
+      .from(connections)
+      .where(eq(connections.tenantId, tenantId)),
+  );
+  const byProvider = (p: ConnectionRow["provider"]) =>
+    rows.find((r) => r.provider === p) ?? null;
+
+  const appUrl = (env().APP_URL || "http://localhost:3000").replace(/\/$/, "");
 
   return (
     <div className="space-y-10">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Sync settings</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Connections and field mapping for your workspace.
+          Connect your call recording tools and Pipedrive, then map the AI
+          signals to your deal fields.
         </p>
       </div>
 
@@ -51,26 +63,73 @@ export default async function SyncSettingsPage({
       {params.connected === "pipedrive" && (
         <Banner tone="success">Pipedrive connected.</Banner>
       )}
-      {params.error && (
-        <Banner tone="error">{errorMessage(params.error)}</Banner>
+      {params.connected === "claap" && (
+        <Banner tone="success">
+          Claap connected — register the webhook URL below in your Claap
+          workspace to start syncing calls.
+        </Banner>
       )}
+      {params.connected === "zoom" && (
+        <Banner tone="success">
+          Zoom connected — set the webhook URL below as your Zoom app&apos;s
+          event notification endpoint.
+        </Banner>
+      )}
+      {params.error && <Banner tone="error">{errorMessage(params.error)}</Banner>}
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-          Connections
+          CRM
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ConnectionCard
-            title="Pipedrive"
-            row={rows.find((r) => r.provider === "pipedrive") ?? null}
-            connectHref="/api/oauth/pipedrive/start"
+        <PipedriveCard row={byProvider("pipedrive")} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+          Call recording
+        </h2>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <KeyProviderCard
+            title="Claap"
+            row={byProvider("claap")}
+            webhookUrl={`${appUrl}/api/webhooks/claap/${tenantId}`}
+            action={connectClaap}
+            fields={[
+              { name: "apiKey", label: "API key", type: "password" },
+              {
+                name: "webhookSecret",
+                label: "Webhook signing secret",
+                type: "password",
+                hint: "Any strong secret — register the same value on the Claap webhook.",
+              },
+            ]}
           />
-          <ConnectionCard
-            title="Google Workspace"
-            row={rows.find((r) => r.provider === "google") ?? null}
-            connectHref="/api/oauth/google/start"
+          <KeyProviderCard
+            title="Zoom"
+            row={byProvider("zoom")}
+            webhookUrl={`${appUrl}/api/webhooks/zoom/${tenantId}`}
+            action={connectZoom}
+            fields={[
+              {
+                name: "webhookSecretToken",
+                label: "Webhook secret token",
+                type: "password",
+                hint: "From your Zoom app's Features → Event Subscriptions.",
+              },
+            ]}
           />
         </div>
+        {GOOGLE_WORKSPACE_ENABLED && (
+          // Post-MVP: Gmail + Calendar ingestion (pipeline already built).
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <Link
+              href="/api/oauth/google/start"
+              className="text-sm font-medium text-slate-900 underline"
+            >
+              Connect Google Workspace
+            </Link>
+          </div>
+        )}
       </section>
 
       <section className="space-y-3">
@@ -87,7 +146,6 @@ export default async function SyncSettingsPage({
 
 // ---------------------------------------------------------------------------
 
-// Derived from the schema so new providers (zoom, ...) can't drift.
 type ConnectionRow = {
   provider: (typeof connections.$inferSelect)["provider"];
   accountRef: string;
@@ -95,41 +153,100 @@ type ConnectionRow = {
   lastError: string | null;
 };
 
-function ConnectionCard({
-  title,
-  row,
-  connectHref,
-}: {
-  title: string;
-  row: ConnectionRow | null;
-  connectHref: string | null;
-}) {
+function PipedriveCard({ row }: { row: ConnectionRow | null }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="font-medium">{title}</div>
+          <div className="font-medium">Pipedrive</div>
           <div className="mt-0.5 text-sm text-slate-500">
-            {row ? row.accountRef : "Not connected"}
+            {row ? `${row.accountRef}.pipedrive.com` : "Not connected"}
           </div>
         </div>
         {row ? (
           <StatusPill status={row.status} />
-        ) : connectHref ? (
+        ) : (
           <Link
-            href={connectHref}
+            href="/api/oauth/pipedrive/start"
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
           >
             Connect
           </Link>
-        ) : (
-          <span className="text-xs text-slate-400">Coming soon</span>
         )}
       </div>
       {row?.status === "error" && row.lastError && (
         <p className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-700">
           {row.lastError}
         </p>
+      )}
+    </div>
+  );
+}
+
+function KeyProviderCard({
+  title,
+  row,
+  webhookUrl,
+  action,
+  fields,
+}: {
+  title: string;
+  row: ConnectionRow | null;
+  webhookUrl: string;
+  action: (formData: FormData) => Promise<void>;
+  fields: { name: string; label: string; type: string; hint?: string }[];
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div className="font-medium">{title}</div>
+        {row ? (
+          <StatusPill status={row.status} />
+        ) : (
+          <span className="text-xs text-slate-400">Not connected</span>
+        )}
+      </div>
+
+      {row ? (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-slate-500">
+            Webhook URL (register this in {title}):
+          </p>
+          <code className="block overflow-x-auto whitespace-nowrap rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
+            {webhookUrl}
+          </code>
+          {row.status === "error" && row.lastError && (
+            <p className="rounded-md bg-red-50 p-2 text-xs text-red-700">
+              {row.lastError}
+            </p>
+          )}
+        </div>
+      ) : (
+        <form action={action} className="mt-3 space-y-3">
+          {fields.map((f) => (
+            <div key={f.name}>
+              <label className="block text-xs font-medium text-slate-600">
+                {f.label}
+              </label>
+              <input
+                name={f.name}
+                type={f.type}
+                required
+                autoComplete="off"
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+              />
+              {f.hint && (
+                <p className="mt-1 text-xs text-slate-400">{f.hint}</p>
+              )}
+            </div>
+          ))}
+          <button
+            type="submit"
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+          >
+            Connect {title}
+          </button>
+        </form>
       )}
     </div>
   );
@@ -166,20 +283,33 @@ const SIGNAL_LABELS = {
 type SignalKey = keyof typeof SIGNAL_LABELS;
 
 async function FieldMappingSection({ tenantId }: { tenantId: string }) {
-  // No Pipedrive connection -> nothing to map against yet.
-  const [pipedrive] = await db
-    .select({ id: connections.id })
-    .from(connections)
-    .where(
-      and(
-        eq(connections.tenantId, tenantId),
-        eq(connections.provider, "pipedrive"),
-        eq(connections.status, "active"),
-      ),
-    )
-    .limit(1);
+  const { pdConnected, mappings } = await withTenant(tenantId, async (tx) => {
+    const [pipedrive] = await tx
+      .select({ id: connections.id })
+      .from(connections)
+      .where(
+        and(
+          eq(connections.tenantId, tenantId),
+          eq(connections.provider, "pipedrive"),
+          eq(connections.status, "active"),
+        ),
+      )
+      .limit(1);
+    if (!pipedrive) return { pdConnected: false, mappings: [] };
+    return {
+      pdConnected: true,
+      mappings: await tx
+        .select({
+          signal: fieldMappings.signal,
+          pipedriveFieldKey: fieldMappings.pipedriveFieldKey,
+          minConfidence: fieldMappings.minConfidence,
+        })
+        .from(fieldMappings)
+        .where(eq(fieldMappings.tenantId, tenantId)),
+    };
+  });
 
-  if (!pipedrive) {
+  if (!pdConnected) {
     return (
       <EmptyCard>
         Connect Pipedrive first — the mapping editor reads the custom fields
@@ -188,9 +318,8 @@ async function FieldMappingSection({ tenantId }: { tenantId: string }) {
     );
   }
 
-  // Fetch the tenant's deal fields from THEIR Pipedrive. This is the one
-  // external call on the page; failures render an error card rather than
-  // crashing the route.
+  // The one external call on the page; failures render an error card
+  // rather than crashing the route.
   let dealFields: { key: string; name: string; field_type: string }[];
   try {
     const account = await pipedriveAccountFor(tenantId);
@@ -205,17 +334,7 @@ async function FieldMappingSection({ tenantId }: { tenantId: string }) {
     );
   }
 
-  const mappings = await db
-    .select({
-      signal: fieldMappings.signal,
-      pipedriveFieldKey: fieldMappings.pipedriveFieldKey,
-      minConfidence: fieldMappings.minConfidence,
-    })
-    .from(fieldMappings)
-    .where(eq(fieldMappings.tenantId, tenantId));
   const bySignal = new Map(mappings.map((m) => [m.signal, m]));
-
-  // Only text-ish fields make sense as targets for our string signals.
   const candidateFields = dealFields.filter((f) =>
     ["varchar", "varchar_auto", "text"].includes(f.field_type),
   );
@@ -357,6 +476,9 @@ function errorMessage(code: string): string {
     pipedrive_already_claimed:
       "That Pipedrive account is already connected to a different workspace.",
     confidence_out_of_range: "Confidence values must be between 0 and 1.",
+    claap_fields_required:
+      "Both the Claap API key and a webhook secret are required.",
+    zoom_fields_required: "The Zoom webhook secret token is required.",
   };
   return messages[code] ?? "Something went wrong. Please try again.";
 }

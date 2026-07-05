@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import type { CallExtraction, Signal } from "@/lib/ai/schemas";
-import { db } from "@/lib/db/client";
+import { withTenant } from "@/lib/db/client";
 import { extractions, interactions } from "@/lib/db/schema";
 import {
   approveExtraction,
@@ -33,28 +33,31 @@ export default async function ReviewPage({
   if (!session?.tenantId) redirect("/api/auth/signin");
   const params = await searchParams;
 
-  const queue = await db
-    .select({
-      id: extractions.id,
-      interactionId: extractions.interactionId,
-      version: extractions.version,
-      payload: extractions.payload,
-      overallConfidence: extractions.overallConfidence,
-      createdAt: extractions.createdAt,
-      title: interactions.title,
-      kind: interactions.kind,
-      occurredAt: interactions.occurredAt,
-    })
-    .from(extractions)
-    .innerJoin(interactions, eq(interactions.id, extractions.interactionId))
-    .where(
-      and(
-        eq(extractions.tenantId, session.tenantId),
-        eq(extractions.status, "needs_review"),
-      ),
-    )
-    .orderBy(desc(extractions.createdAt))
-    .limit(50);
+  // withTenant: RLS pins this transaction to the session's tenant.
+  const queue = await withTenant(session.tenantId, (tx) =>
+    tx
+      .select({
+        id: extractions.id,
+        interactionId: extractions.interactionId,
+        version: extractions.version,
+        payload: extractions.payload,
+        overallConfidence: extractions.overallConfidence,
+        createdAt: extractions.createdAt,
+        title: interactions.title,
+        kind: interactions.kind,
+        occurredAt: interactions.occurredAt,
+      })
+      .from(extractions)
+      .innerJoin(interactions, eq(interactions.id, extractions.interactionId))
+      .where(
+        and(
+          eq(extractions.tenantId, session.tenantId),
+          eq(extractions.status, "needs_review"),
+        ),
+      )
+      .orderBy(desc(extractions.createdAt))
+      .limit(50),
+  );
 
   return (
     <div className="space-y-6">

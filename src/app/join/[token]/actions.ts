@@ -4,6 +4,9 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { auth, unstable_update } from "@/auth";
+// Owner pool by design: an invite is accepted BEFORE the user belongs to
+// the tenant, so no RLS tenant context can exist yet — the unguessable
+// single-use token is itself the capability that authorizes this access.
 import { db } from "@/lib/db/client";
 import { invites, memberships } from "@/lib/db/schema";
 

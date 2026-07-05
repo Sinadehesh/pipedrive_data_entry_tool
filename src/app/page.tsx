@@ -7,8 +7,9 @@ export default function Home() {
         CRM Intelligence
       </h1>
       <p className="text-slate-600">
-        Every call, email, and meeting — extracted and synced to Pipedrive
-        without your reps lifting a finger.
+        Every sales call — recorded in Claap or Zoom — analyzed for BANT,
+        objections, and competitors, then synced to Pipedrive without your
+        reps lifting a finger.
       </p>
       <Link
         href="/settings/sync"

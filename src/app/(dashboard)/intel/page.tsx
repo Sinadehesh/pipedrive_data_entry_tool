@@ -2,7 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
-import { db } from "@/lib/db/client";
+import { withTenant } from "@/lib/db/client";
 import { competitiveIntel, interactions } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +17,10 @@ export default async function IntelPage() {
   if (!session?.tenantId) redirect("/api/auth/signin");
   const tenantId = session.tenantId;
 
-  const [byCompetitor, recent] = await Promise.all([
-    db
+  // Sequential inside one withTenant transaction (a single Postgres
+  // connection can't interleave concurrent queries).
+  const { byCompetitor, recent } = await withTenant(tenantId, async (tx) => {
+    const byCompetitor = await tx
       .select({
         competitor: competitiveIntel.competitor,
         rawName: sql<string>`min(${competitiveIntel.rawName})`,
@@ -32,8 +34,8 @@ export default async function IntelPage() {
       .where(eq(competitiveIntel.tenantId, tenantId))
       .groupBy(competitiveIntel.competitor)
       .orderBy(sql`count(*) desc`)
-      .limit(25),
-    db
+      .limit(25);
+    const recent = await tx
       .select({
         rawName: competitiveIntel.rawName,
         context: competitiveIntel.context,
@@ -49,8 +51,9 @@ export default async function IntelPage() {
       )
       .where(eq(competitiveIntel.tenantId, tenantId))
       .orderBy(desc(competitiveIntel.occurredAt))
-      .limit(15),
-  ]);
+      .limit(15);
+    return { byCompetitor, recent };
+  });
 
   return (
     <div className="space-y-8">

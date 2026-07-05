@@ -9,6 +9,11 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
+  /**
+   * Same database, non-owner `app_rls` role — the pool RLS actually bites
+   * on. Request-path queries (withTenant) run here. Optional in dev.
+   */
+  DATABASE_URL_RLS: z.string().optional().default(""),
 
   ANTHROPIC_API_KEY: z.string().min(1),
 

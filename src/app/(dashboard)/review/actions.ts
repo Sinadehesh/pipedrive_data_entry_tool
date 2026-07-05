@@ -6,14 +6,17 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import type { CallExtraction } from "@/lib/ai/schemas";
-import { db } from "@/lib/db/client";
+import { withTenant, type TenantTx } from "@/lib/db/client";
 import { extractions, interactions, syncOutbox } from "@/lib/db/schema";
 import { syncCompetitiveIntel } from "@/lib/intel";
 import { inngest } from "@/inngest/client";
 
 /**
- * Review-queue actions. Tenant always comes from the session; the form
- * contributes only ids that are then re-checked against that tenant.
+ * Review-queue actions. Tenant always comes from the session, and every
+ * query runs inside withTenant() — Postgres RLS is the fail-safe behind
+ * the explicit WHERE clauses. Inngest events are sent strictly AFTER the
+ * transaction commits, so the reconciler can never race an uncommitted
+ * outbox row.
  *
  * Immutability rule: a reviewer EDIT never mutates the stored payload — it
  * appends a new extraction version authored by the human (model
@@ -30,29 +33,33 @@ export async function approveExtraction(formData: FormData): Promise<void> {
   if (!session?.tenantId) redirect("/api/auth/signin");
   const tenantId = session.tenantId;
   const extractionId = String(formData.get("extractionId") ?? "");
+  const reviewer = session.user.email ?? session.user.id;
 
-  const row = await loadReviewable(tenantId, extractionId);
-  if (!row) redirect("/review?error=not_found");
+  const outcome = await withTenant(tenantId, async (tx) => {
+    const row = await loadReviewable(tx, tenantId, extractionId);
+    if (!row) return null;
 
-  // Diff the reviewer's inputs against the stored signals.
-  const edits = new Map<EditableSignal, string | null>();
-  for (const signal of EDITABLE) {
-    const raw = formData.get(`edit:${signal}`);
-    if (raw === null) continue;
-    const value = String(raw).trim();
-    const current = row.payload.bant[signal].value ?? "";
-    if (value !== current) edits.set(signal, value === "" ? null : value);
-  }
+    // Diff the reviewer's inputs against the stored signals.
+    const edits = new Map<EditableSignal, string | null>();
+    for (const signal of EDITABLE) {
+      const raw = formData.get(`edit:${signal}`);
+      if (raw === null) continue;
+      const value = String(raw).trim();
+      const current = row.payload.bant[signal].value ?? "";
+      if (value !== current) edits.set(signal, value === "" ? null : value);
+    }
 
-  if (edits.size === 0) {
-    // Plain approval: flip the status and let the tenant's mappings decide
-    // what reaches Pipedrive.
-    await db
-      .update(extractions)
-      .set({ status: "auto_approved" })
-      .where(eq(extractions.id, row.id));
-    await enqueueFieldSync(tenantId, row.interactionId, row.id, row.version);
-  } else {
+    if (edits.size === 0) {
+      // Plain approval: flip the status and let the tenant's mappings
+      // decide what reaches Pipedrive.
+      await tx
+        .update(extractions)
+        .set({ status: "auto_approved" })
+        .where(eq(extractions.id, row.id));
+      await enqueueFieldSync(tx, tenantId, row.interactionId, row.id, row.version);
+      return { ok: true };
+    }
+
     // Edited approval: append a human-authored version.
     const payload: CallExtraction = structuredClone(row.payload);
     for (const [signal, value] of edits) {
@@ -64,38 +71,55 @@ export async function approveExtraction(formData: FormData): Promise<void> {
       target.evidence = value === null ? null : "(corrected by reviewer)";
     }
 
-    const [created] = await db
+    const [created] = await tx
       .insert(extractions)
       .values({
         tenantId,
         interactionId: row.interactionId,
         version: row.latestVersion + 1,
-        model: `human-review:${session.user.email ?? session.user.id}`,
+        model: `human-review:${reviewer}`,
         payload,
         overallConfidence: 1,
         status: "auto_approved",
       })
       .returning({ id: extractions.id, version: extractions.version });
 
-    await db
+    await tx
       .update(extractions)
       .set({ status: "rejected", error: "superseded by reviewer edit" })
       .where(eq(extractions.id, row.id));
 
-    await syncCompetitiveIntel({
-      tenantId,
-      interactionId: row.interactionId,
-      extractionId: created.id,
-      payload,
-      occurredAt: row.occurredAt,
-    });
     await enqueueFieldSync(
+      tx,
       tenantId,
       row.interactionId,
       created.id,
       created.version,
     );
+    return {
+      ok: true,
+      intel: {
+        interactionId: row.interactionId,
+        extractionId: created.id,
+        payload,
+        occurredAt: row.occurredAt,
+      },
+    };
+  });
+
+  if (!outcome) redirect("/review?error=not_found");
+
+  // Post-commit side effects: intel sync (owner pool) + reconciler nudge.
+  if (outcome.intel) {
+    await syncCompetitiveIntel({
+      tenantId,
+      interactionId: outcome.intel.interactionId,
+      extractionId: outcome.intel.extractionId,
+      payload: outcome.intel.payload,
+      occurredAt: new Date(outcome.intel.occurredAt),
+    });
   }
+  await inngest.send({ name: "sync/outbox.ready", data: { tenantId } });
 
   revalidatePath("/review");
   redirect("/review?approved=1");
@@ -104,15 +128,19 @@ export async function approveExtraction(formData: FormData): Promise<void> {
 export async function rejectExtraction(formData: FormData): Promise<void> {
   const session = await auth();
   if (!session?.tenantId) redirect("/api/auth/signin");
+  const tenantId = session.tenantId;
   const extractionId = String(formData.get("extractionId") ?? "");
 
-  const row = await loadReviewable(session.tenantId, extractionId);
-  if (!row) redirect("/review?error=not_found");
-
-  await db
-    .update(extractions)
-    .set({ status: "rejected" })
-    .where(eq(extractions.id, row.id));
+  const found = await withTenant(tenantId, async (tx) => {
+    const row = await loadReviewable(tx, tenantId, extractionId);
+    if (!row) return false;
+    await tx
+      .update(extractions)
+      .set({ status: "rejected" })
+      .where(eq(extractions.id, row.id));
+    return true;
+  });
+  if (!found) redirect("/review?error=not_found");
 
   revalidatePath("/review");
   redirect("/review?rejected=1");
@@ -126,16 +154,19 @@ export async function replayInteraction(formData: FormData): Promise<void> {
   const interactionId = String(formData.get("interactionId") ?? "");
 
   // Ownership check before emitting anything.
-  const [owned] = await db
-    .select({ id: interactions.id })
-    .from(interactions)
-    .where(
-      and(
-        eq(interactions.tenantId, tenantId),
-        eq(interactions.id, interactionId),
-      ),
-    )
-    .limit(1);
+  const owned = await withTenant(tenantId, async (tx) => {
+    const [row] = await tx
+      .select({ id: interactions.id })
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.tenantId, tenantId),
+          eq(interactions.id, interactionId),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
+  });
   if (!owned) redirect("/review?error=not_found");
 
   await inngest.send({
@@ -149,8 +180,12 @@ export async function replayInteraction(formData: FormData): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-async function loadReviewable(tenantId: string, extractionId: string) {
-  const [row] = await db
+async function loadReviewable(
+  tx: TenantTx,
+  tenantId: string,
+  extractionId: string,
+) {
+  const [row] = await tx
     .select({
       id: extractions.id,
       interactionId: extractions.interactionId,
@@ -170,7 +205,7 @@ async function loadReviewable(tenantId: string, extractionId: string) {
     .limit(1);
   if (!row?.payload) return null;
 
-  const [latest] = await db
+  const [latest] = await tx
     .select({ version: extractions.version })
     .from(extractions)
     .where(eq(extractions.interactionId, row.interactionId))
@@ -185,12 +220,13 @@ async function loadReviewable(tenantId: string, extractionId: string) {
 }
 
 async function enqueueFieldSync(
+  tx: TenantTx,
   tenantId: string,
   interactionId: string,
   extractionId: string,
   version: number,
 ): Promise<void> {
-  await db
+  await tx
     .insert(syncOutbox)
     .values({
       tenantId,
@@ -201,8 +237,4 @@ async function enqueueFieldSync(
       idempotencyKey: `deal-fields:${interactionId}:v${version}`,
     })
     .onConflictDoNothing();
-  await inngest.send({
-    name: "sync/outbox.ready",
-    data: { tenantId },
-  });
 }

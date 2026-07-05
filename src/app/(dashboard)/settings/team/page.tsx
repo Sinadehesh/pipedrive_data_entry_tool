@@ -2,7 +2,7 @@ import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
-import { db } from "@/lib/db/client";
+import { withTenant } from "@/lib/db/client";
 import { invites, memberships, users } from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { createInvite, revokeInvite } from "./actions";
@@ -19,8 +19,9 @@ export default async function TeamPage({
   const tenantId = session.tenantId;
   const params = await searchParams;
 
-  const [members, pending, me] = await Promise.all([
-    db
+  // Sequential inside one RLS-pinned transaction.
+  const { members, pending, me } = await withTenant(tenantId, async (tx) => {
+    const members = await tx
       .select({
         email: users.email,
         name: users.name,
@@ -30,8 +31,8 @@ export default async function TeamPage({
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .where(eq(memberships.tenantId, tenantId))
-      .orderBy(memberships.createdAt),
-    db
+      .orderBy(memberships.createdAt);
+    const pending = await tx
       .select({
         id: invites.id,
         token: invites.token,
@@ -45,8 +46,8 @@ export default async function TeamPage({
           gt(invites.expiresAt, new Date()),
         ),
       )
-      .orderBy(desc(invites.createdAt)),
-    db
+      .orderBy(desc(invites.createdAt));
+    const [me] = await tx
       .select({ role: memberships.role })
       .from(memberships)
       .where(
@@ -55,9 +56,9 @@ export default async function TeamPage({
           eq(memberships.tenantId, tenantId),
         ),
       )
-      .limit(1)
-      .then((r) => r[0] ?? null),
-  ]);
+      .limit(1);
+    return { members, pending, me: me ?? null };
+  });
 
   const appUrl = (env().APP_URL || "http://localhost:3000").replace(/\/$/, "");
   const isOwner = me?.role === "owner";
