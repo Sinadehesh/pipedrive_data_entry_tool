@@ -13,19 +13,15 @@ import { connectClaap, connectZoom, saveFieldMappings } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-/**
- * MVP (v1.0) scope: CALL ingestion — Claap + Zoom — synced to Pipedrive.
- * The Google Workspace plane (Gmail/Calendar ingestion, OAuth connect,
- * watch lifecycle) is fully built but held out of the UI for launch; flip
- * this to re-surface it. Server-side nothing is removed: without a google
- * connection those pipelines simply never fire.
- */
-const GOOGLE_WORKSPACE_ENABLED = false;
-
 export default async function SyncSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; connected?: string; error?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    connected?: string;
+    warn?: string;
+    error?: string;
+  }>;
 }) {
   const session = await auth();
   if (!session?.tenantId) redirect("/api/auth/signin");
@@ -54,8 +50,9 @@ export default async function SyncSettingsPage({
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Sync settings</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Connect your call recording tools and Pipedrive, then map the AI
-          signals to your deal fields.
+          Connect Pipedrive, your call recording tools, and Google Workspace
+          — every call, email, and meeting feeds the same pipeline, and deal
+          freshness is judged across all of them.
         </p>
       </div>
 
@@ -73,6 +70,14 @@ export default async function SyncSettingsPage({
         <Banner tone="success">
           Zoom connected — set the webhook URL below as your Zoom app&apos;s
           event notification endpoint.
+        </Banner>
+      )}
+      {params.connected === "google" && (
+        <Banner tone="success">
+          Google Workspace connected
+          {params.warn === "watches"
+            ? " — but live notifications couldn't be armed yet; we'll keep retrying automatically (see the connection card)."
+            : " — importing the last 90 days of email and meetings now."}
         </Banner>
       )}
       {params.error && <Banner tone="error">{errorMessage(params.error)}</Banner>}
@@ -119,17 +124,13 @@ export default async function SyncSettingsPage({
             ]}
           />
         </div>
-        {GOOGLE_WORKSPACE_ENABLED && (
-          // Post-MVP: Gmail + Calendar ingestion (pipeline already built).
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
-            <Link
-              href="/api/oauth/google/start"
-              className="text-sm font-medium text-slate-900 underline"
-            >
-              Connect Google Workspace
-            </Link>
-          </div>
-        )}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+          Email &amp; calendar
+        </h2>
+        <GoogleCard row={byProvider("google")} />
       </section>
 
       <section className="space-y-3">
@@ -174,6 +175,44 @@ function PipedriveCard({ row }: { row: ConnectionRow | null }) {
           </Link>
         )}
       </div>
+      {row?.status === "error" && row.lastError && (
+        <p className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-700">
+          {row.lastError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GoogleCard({ row }: { row: ConnectionRow | null }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="font-medium">Google Workspace</div>
+          <div className="mt-0.5 text-sm text-slate-500">
+            {row
+              ? row.accountRef
+              : "Gmail + Calendar (read-only) — keeps deal freshness honest between calls"}
+          </div>
+        </div>
+        {row ? (
+          <StatusPill status={row.status} />
+        ) : (
+          <Link
+            href="/api/oauth/google/start"
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+          >
+            Connect
+          </Link>
+        )}
+      </div>
+      {row && (
+        <p className="mt-2 text-xs text-slate-400">
+          Connecting imports the last 90 days of prospect email and external
+          meetings, then stays live via push notifications.
+        </p>
+      )}
       {row?.status === "error" && row.lastError && (
         <p className="mt-3 rounded-md bg-red-50 p-2 text-xs text-red-700">
           {row.lastError}
@@ -479,6 +518,15 @@ function errorMessage(code: string): string {
     claap_fields_required:
       "Both the Claap API key and a webhook secret are required.",
     zoom_fields_required: "The Zoom webhook secret token is required.",
+    google_state_mismatch:
+      "The Google connection attempt expired or was tampered with. Please try again.",
+    google_exchange_failed:
+      "Google rejected the authorization. Please try connecting again.",
+    google_no_refresh_token:
+      "Google didn't issue offline access. Remove the app's access in your Google Account permissions, then connect again.",
+    google_no_email: "Google didn't return a verified email for the account.",
+    google_already_claimed:
+      "That Google account is already connected to a different workspace.",
   };
   return messages[code] ?? "Something went wrong. Please try again.";
 }

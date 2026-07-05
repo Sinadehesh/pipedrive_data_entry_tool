@@ -92,11 +92,13 @@ export const stalenessCheck = inngest.createFunction(
 
     /**
      * Stale = a deal we know (tenant's identity_map) whose LAST interaction
-     * — call, email, or meeting, matched by participant email against the
-     * tenant's ledger — is older than the tenant's stalenessDays. Both
-     * sides of the join are pinned to this tenantId; the identity_map
-     * unique key is (tenant_id, email), so another tenant's rows are
-     * unreachable by construction.
+     * is older than the tenant's stalenessDays. The join deliberately has
+     * NO kind/source filter: a deal alive over email or with an upcoming
+     * ledgered meeting counts as fresh even if its last Zoom/Claap call is
+     * months old — which is exactly why calls-only capture would make this
+     * sweep generate false positives. Both sides of the join are pinned to
+     * this tenantId; the identity_map unique key is (tenant_id, email), so
+     * another tenant's rows are unreachable by construction.
      */
     const staleDeals = await step.run("scan-stale-deals", async () => {
       const cutoffDays = tenant.stalenessDays;
