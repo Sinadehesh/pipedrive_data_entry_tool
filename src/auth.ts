@@ -1,7 +1,7 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import {
@@ -24,7 +24,7 @@ import { env } from "@/lib/env";
  * action, and API route derives its tenant from this session value —
  * server-side state, never client input.
  */
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
@@ -43,7 +43,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       // Cast once: JWT claim typing varies across next-auth v5 betas.
       const claims = token as typeof token & {
         userId?: string;
@@ -57,6 +57,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           claims.userId,
           claims.email ?? null,
         );
+      }
+      // Tenant switch via unstable_update() — e.g. after accepting an
+      // invite. The requested tenant is honored ONLY if a membership row
+      // exists for this user; the client can never talk itself into a
+      // foreign tenant.
+      if (
+        trigger === "update" &&
+        claims.userId &&
+        typeof (session as { tenantId?: unknown } | null)?.tenantId === "string"
+      ) {
+        const requested = (session as { tenantId: string }).tenantId;
+        const [member] = await db
+          .select({ id: memberships.id })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.userId, claims.userId),
+              eq(memberships.tenantId, requested),
+            ),
+          )
+          .limit(1);
+        if (member) claims.tenantId = requested;
       }
       return claims;
     },

@@ -8,6 +8,7 @@ import {
   stalenessDispatch,
 } from "@/inngest/functions/cron/staleness-sweep";
 import { extractCall } from "@/inngest/functions/extract/extract-call";
+import { replayExtraction } from "@/inngest/functions/extract/replay-extraction";
 import { calendarDelta } from "@/inngest/functions/ingest/calendar-delta";
 import { gmailHistory } from "@/inngest/functions/ingest/gmail-history";
 import { reconcilePipedrive } from "@/inngest/functions/sync/reconcile-pipedrive";
@@ -21,6 +22,7 @@ export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
     extractCall,
+    replayExtraction,
     gmailHistory,
     calendarDelta,
     reconcilePipedrive,

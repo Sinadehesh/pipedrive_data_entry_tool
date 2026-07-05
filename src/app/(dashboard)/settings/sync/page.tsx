@@ -68,8 +68,7 @@ export default async function SyncSettingsPage({
           <ConnectionCard
             title="Google Workspace"
             row={rows.find((r) => r.provider === "google") ?? null}
-            // TODO: /api/oauth/google/start (gmail.readonly connect flow).
-            connectHref={null}
+            connectHref="/api/oauth/google/start"
           />
         </div>
       </section>

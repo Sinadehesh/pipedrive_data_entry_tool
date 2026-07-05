@@ -55,6 +55,17 @@ export const eventSchemas = {
     }),
   },
   /**
+   * Re-run LLM extraction for one interaction from the IMMUTABLE ledger —
+   * no re-ingestion, no provider API calls. Appends a new extraction
+   * version; history is never rewritten.
+   */
+  "ledger/interaction.replay": {
+    data: z.object({
+      tenantId: z.string().uuid(),
+      interactionId: z.string().uuid(),
+    }),
+  },
+  /**
    * Generic "this tenant has due outbox rows" nudge for the reconciler —
    * used by producers whose rows aren't tied to a fresh extraction
    * (calendar risk flags, staleness sweep, drain cron).

@@ -14,6 +14,7 @@ import { getTranscript } from "@/lib/claap/client";
 import { requireConnection } from "@/lib/connections";
 import { db } from "@/lib/db/client";
 import { extractions, interactions, syncOutbox } from "@/lib/db/schema";
+import { syncCompetitiveIntel } from "@/lib/intel";
 import { inngest } from "@/inngest/client";
 
 /**
@@ -184,6 +185,16 @@ export const extractCall = inngest.createFunction(
           })),
         )
         .onConflictDoNothing();
+
+      // Competitor mentions -> the intel dashboard (not confidence-gated:
+      // intel is analytics, it never writes to the tenant's CRM).
+      await syncCompetitiveIntel({
+        tenantId,
+        interactionId: interaction.id,
+        extractionId: row.id,
+        payload: merged,
+        occurredAt: new Date(transcript.occurredAt),
+      });
 
       return row;
     });

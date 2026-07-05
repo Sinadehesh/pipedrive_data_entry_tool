@@ -273,6 +273,7 @@ export const interactionKind = pgEnum("interaction_kind", [
 export const extractionStatus = pgEnum("extraction_status", [
   "auto_approved", // confidence cleared the bar; eligible for field writes
   "needs_review", // low confidence; notes only until a human approves
+  "rejected", // reviewer declined (or superseded by an edited version)
   "failed", // extraction pipeline exhausted retries
 ]);
 
@@ -449,6 +450,74 @@ export const syncLog = pgTable(
       .defaultNow(),
   },
   (t) => [index("sync_log_tenant_idx").on(t.tenantId)],
+);
+
+/**
+ * Denormalized competitor mentions for the intel dashboard — one row per
+ * competitor per interaction's CURRENT extraction version. Kept in lockstep
+ * by syncCompetitiveIntel(): a replay or reviewer edit replaces the
+ * interaction's rows so aggregates always reflect the latest version.
+ */
+export const intelSentiment = pgEnum("intel_sentiment", [
+  "favored",
+  "neutral",
+  "losing",
+]);
+
+export const competitiveIntel = pgTable(
+  "competitive_intel",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    interactionId: uuid("interaction_id")
+      .notNull()
+      .references(() => interactions.id),
+    extractionId: uuid("extraction_id")
+      .notNull()
+      .references(() => extractions.id),
+    /** Normalized (lowercased, trimmed) for grouping; display uses rawName. */
+    competitor: text("competitor").notNull(),
+    rawName: text("raw_name").notNull(),
+    context: text("context").notNull(),
+    sentiment: intelSentiment("sentiment").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("competitive_intel_tenant_competitor_idx").on(
+      t.tenantId,
+      t.competitor,
+    ),
+    index("competitive_intel_interaction_idx").on(t.interactionId),
+  ],
+);
+
+/** Single-use, expiring join links so owners can invite reps. */
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    /** Unguessable 48-hex token — the join URL's path segment. */
+    token: text("token").notNull(),
+    role: membershipRole("role").notNull().default("member"),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    usedByUserId: text("used_by_user_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("invites_token_uq").on(t.token)],
 );
 
 export const identityMap = pgTable(

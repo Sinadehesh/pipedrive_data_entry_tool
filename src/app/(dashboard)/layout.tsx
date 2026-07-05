@@ -27,10 +27,28 @@ export default async function DashboardLayout({
               CRM Intelligence
             </Link>
             <Link
+              href="/review"
+              className="text-sm text-slate-600 hover:text-slate-900"
+            >
+              Review
+            </Link>
+            <Link
+              href="/intel"
+              className="text-sm text-slate-600 hover:text-slate-900"
+            >
+              Intel
+            </Link>
+            <Link
               href="/settings/sync"
               className="text-sm text-slate-600 hover:text-slate-900"
             >
-              Sync settings
+              Sync
+            </Link>
+            <Link
+              href="/settings/team"
+              className="text-sm text-slate-600 hover:text-slate-900"
+            >
+              Team
             </Link>
           </nav>
           <div className="flex items-center gap-4">
