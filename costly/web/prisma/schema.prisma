@@ -1,0 +1,121 @@
+// COSTLY v2 — Prisma schema
+//
+// Money convention: ALL monetary values are integer cents (Stripe's unit).
+// Never floats, never Decimal euros — €30.00 is stored as 3000.
+//
+// Stripe constraint that shapes this schema: a single PaymentIntent cannot
+// be partially captured while keeping the remainder on hold — a partial
+// capture auto-releases the rest. So the 20/80 split uses TWO PaymentIntents
+// per session: a "burn" intent (20%, captured immediately, off-session) and
+// a "purgatory" intent (80%, manual-capture hold, cancelled on redemption
+// success or captured on deadline expiry).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SessionStatus {
+  ACTIVE   // timer running on device; heartbeats arriving
+  HOLD     // session ended: 20% captured, 80% on pre-auth hold, redemption pending
+  RELEASED // walking goal met in time → purgatory hold cancelled, funds released
+  CAPTURED // 24h deadline missed → purgatory hold captured, funds lost
+}
+
+enum RedemptionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  email     String   @unique
+
+  // ── Income-indexed rate ────────────────────────────────────────────────
+  monthlyIncomeCents     Int
+  hourlyWageCents        Int // derived at onboarding (income / 160h), stored for audit
+  penaltyRateCentsPerMin Int // e.g. 100 = €1.00/minute
+
+  // ── Product anchor ("the hostage") ─────────────────────────────────────
+  anchorItem       String // "AirPods Pro"
+  anchorPriceCents Int    // 24900
+
+  // ── Safety rails ───────────────────────────────────────────────────────
+  sessionCapCents Int @default(3000) // hard financial stop per session (€30)
+  idleTimeoutSecs Int @default(60)   // pause timer after N s without a scroll event
+
+  // ── Stripe ─────────────────────────────────────────────────────────────
+  stripeCustomerId      String? @unique
+  stripePaymentMethodId String? // saved via SetupIntent; required for off-session charges
+
+  currency String @default("eur")
+
+  sessions Session[]
+}
+
+model Session {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  appPackage String    // vice app, e.g. "com.instagram.android"
+  startTime  DateTime  @default(now())
+  endTime    DateTime?
+
+  // Active (billable) time only. Idle gaps — no TYPE_VIEW_SCROLLED event for
+  // idleTimeoutSecs — are excluded by the heartbeat endpoint, so this is the
+  // authoritative billable duration, not endTime - startTime.
+  totalActiveSeconds Int       @default(0)
+  lastScrollEventAt  DateTime?
+
+  totalPenaltyCents Int     @default(0)
+  burnCents         Int     @default(0) // 20% — permanently captured
+  purgatoryCents    Int     @default(0) // 80% — held, redeemable
+  capReached        Boolean @default(false)
+
+  status SessionStatus @default(ACTIVE)
+
+  stripeBurnPaymentIntentId      String? @unique
+  stripePurgatoryPaymentIntentId String? @unique
+
+  redemption RedemptionTask?
+
+  @@index([userId, status])
+  @@index([status, endTime])
+}
+
+model RedemptionTask {
+  id        String  @id @default(cuid())
+  sessionId String  @unique
+  session   Session @relation(fields: [sessionId], references: [id])
+
+  // 2:1 sweat equity — requiredWalkingMinutes = 2 × billable scroll minutes
+  requiredWalkingMinutes  Int
+  completedWalkingMinutes Int       @default(0)
+  deadline                DateTime  // session.endTime + 24h
+  lastHealthSyncAt        DateTime?
+  healthSource            String?   // "health_connect" | "healthkit"
+
+  status RedemptionStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // n8n expiry sweep: WHERE status = PENDING AND deadline < now()
+  @@index([status, deadline])
+}
+
+// Idempotency ledger for Stripe webhooks — insert-or-skip on event.id so
+// retried deliveries never double-process a capture or release.
+model WebhookEvent {
+  id          String   @id // Stripe event id (evt_...)
+  type        String
+  processedAt DateTime @default(now())
+}
