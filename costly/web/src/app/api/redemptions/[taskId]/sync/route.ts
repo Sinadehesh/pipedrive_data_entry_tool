@@ -12,12 +12,13 @@ const bodySchema = z.object({
 
 /**
  * POST /api/redemptions/:taskId/sync
- * Fed by n8n (polling the health API) or pushed by the companion app.
+ * Pushed by the Android companion app (Health Connect is on-device only,
+ * so nothing server-side can poll it).
  * When the walking goal is met before the deadline, the purgatory hold is
  * CANCELLED — the user gets their 80% back. Sweat equity, settled.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ taskId: string }> }) {
-  // TODO(auth): verify JOBS_API_SECRET / DEVICE_API_SECRET header.
+  // TODO(auth): verify DEVICE_API_SECRET header.
   const { taskId } = await ctx.params;
   const body = bodySchema.parse(await req.json());
 

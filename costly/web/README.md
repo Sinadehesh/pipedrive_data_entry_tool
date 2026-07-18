@@ -11,6 +11,11 @@ npx prisma migrate dev
 npm run dev
 ```
 
+The expiry sweep is scheduled in `vercel.json` (every 10 min). On Vercel's
+Hobby plan crons are limited to once daily — if that's too coarse, point any
+plain scheduler (system cron, GitHub Actions schedule) at
+`GET /api/jobs/expire-holds` with `Authorization: Bearer $CRON_SECRET`.
+
 ## API routes
 
 ```
@@ -39,7 +44,8 @@ src/app/api/
 │                                                goal met in time → cancel hold
 │                                                → RELEASED
 └── jobs/
-    └── expire-holds/route.ts              POST  n8n cron sweep: past-deadline
+    └── expire-holds/route.ts              GET   scheduled sweep (Vercel Cron /
+                                                 any cron): past-deadline
                                                  PENDING → capture hold →
                                                  CAPTURED/FAILED
 ```
@@ -62,7 +68,7 @@ then, one of two endings:
   → POST /api/redemptions/:taskId/sync                goal met
       stripe.paymentIntents.cancel(purgatory)         Session RELEASED ✓
   deadline passes
-  → n8n → POST /api/jobs/expire-holds
+  → cron → GET /api/jobs/expire-holds
       stripe.paymentIntents.capture(purgatory)        Session CAPTURED ✗
 ```
 

@@ -16,8 +16,8 @@ Mobile-first **Next.js web app** + Android companion service.
 
 - Next.js (App Router) + Tailwind · Prisma + PostgreSQL · Stripe
   pre-auth holds & captures · Android AccessibilityService for scroll
-  detection · Health Connect/HealthKit for walking verification · n8n
-  for cron/polling.
+  detection · Health Connect/HealthKit for walking verification ·
+  Vercel Cron (or any plain cron) for the expiry sweep.
 - **20/80 split**: session ends → 20% captured permanently, 80% held in
   purgatory for 24h; released on walking-goal success, captured on
   expiry. Two PaymentIntents per session (Stripe can't partial-capture
@@ -44,4 +44,5 @@ Mobile-first **Next.js web app** + Android companion service.
 | API routes: onboarding, setup-intent, session lifecycle, redemption sync, expiry job, webhook | ✅ scaffolded |
 | UI: onboarding flow, live meter, purgatory dashboard | ⬜ next |
 | Android companion service (AccessibilityService) | ⬜ |
-| n8n workflows (expiry sweep, health polling) | ⬜ |
+| Expiry sweep schedule (`web/vercel.json` cron) | ✅ |
+| Companion app → health-minutes push wiring | ⬜ |

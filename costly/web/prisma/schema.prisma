@@ -108,7 +108,7 @@ model RedemptionTask {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // n8n expiry sweep: WHERE status = PENDING AND deadline < now()
+  // expiry sweep: WHERE status = PENDING AND deadline < now()
   @@index([status, deadline])
 }
 

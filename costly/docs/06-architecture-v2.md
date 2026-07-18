@@ -11,7 +11,8 @@
 - **Payments**: Stripe — pre-authorization holds & captures
 - **Device**: Android AccessibilityService (scroll detection),
   Health Connect / HealthKit (verified walking minutes)
-- **Automation**: n8n (cron jobs, third-party API polling)
+- **Scheduling**: Vercel Cron (or any plain cron) hitting
+  `/api/jobs/expire-holds` — no automation platform
 
 ## Mechanics
 
@@ -49,10 +50,10 @@
 ## Known platform risks (tracked, not blocking)
 
 - **Google Fit REST API is deprecated** (sunset announced; Health
-  Connect is the Android path). n8n cannot poll Health Connect — it is
-  on-device only — so the companion app must push walking minutes to
-  `/api/redemptions/:id/sync`. HealthKit likewise has no server API;
-  iOS needs on-device sync when it lands.
+  Connect is the Android path). Health Connect is on-device only —
+  nothing server-side can poll it — so the companion app must push
+  walking minutes to `/api/redemptions/:id/sync`. HealthKit likewise
+  has no server API; iOS needs on-device sync when it lands.
 - **AccessibilityService for non-accessibility purposes** is restricted
   by Play Store policy; distribution may need to be sideload/APK first,
   Play review argued later (or a UsageStats fallback with coarser idle

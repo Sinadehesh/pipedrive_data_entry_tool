@@ -3,13 +3,17 @@ import { prisma } from '@/lib/prisma';
 import { stripe } from '@/lib/stripe';
 
 /**
- * POST /api/jobs/expire-holds
- * Hit by n8n on a schedule (every 5–10 min). Sweeps PENDING redemption tasks
- * whose 24h deadline has passed and CAPTURES the 80% purgatory hold.
- * The walk didn't happen; the money does.
+ * GET /api/jobs/expire-holds
+ * Scheduled sweep — no automation platform involved. Wire it to Vercel Cron
+ * (see vercel.json) or any plain scheduler (system cron / GitHub Actions
+ * schedule) that can send `Authorization: Bearer $CRON_SECRET`.
+ *
+ * Sweeps PENDING redemption tasks whose 24h deadline has passed and CAPTURES
+ * the 80% purgatory hold. The walk didn't happen; the money does.
+ * Safe to call at any frequency — each task is captured at most once.
  */
-export async function POST(req: Request) {
-  if (req.headers.get('x-jobs-secret') !== process.env.JOBS_API_SECRET) {
+export async function GET(req: Request) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
