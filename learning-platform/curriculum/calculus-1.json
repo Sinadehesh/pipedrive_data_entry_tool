@@ -1,0 +1,207 @@
+{
+  "subject": {
+    "slug": "calculus-1",
+    "name": "Calculus I",
+    "description": "Single-variable calculus for first-year engineering: limits, differentiation, integration, series, and an introduction to differential equations. Everything required to move on to second-year mathematics.",
+    "year": 1,
+    "position": 1,
+    "min_sample_size": 5
+  },
+  "depth_levels": {
+    "awareness": "Know it exists and recognize it",
+    "procedural": "Apply it mechanically to standard problems",
+    "fluency": "Combine it with other tools in multi-step problems",
+    "proof": "State it precisely and prove or derive it"
+  },
+  "topics": [
+    {
+      "slug": "precalculus-foundations",
+      "name": "Precalculus Foundations",
+      "description": "Review gate: the algebra, functions, and trigonometry the whole course stands on.",
+      "subtopics": [
+        { "slug": "functions-domain-range", "name": "Functions, domain, and range", "depth": "procedural", "est_hours": 2, "description": "Function notation, evaluating functions, finding domains and ranges." },
+        { "slug": "function-composition-inverse", "name": "Composite and inverse functions", "depth": "fluency", "est_hours": 3, "description": "Building and decomposing composite functions; existence and computation of inverses.", "prerequisites": ["functions-domain-range"] },
+        { "slug": "polynomial-rational-functions", "name": "Polynomial and rational functions and their graphs", "depth": "procedural", "est_hours": 2, "description": "Roots, factoring, end behavior, asymptote intuition for rational functions." },
+        { "slug": "exponential-log-functions", "name": "Exponential and logarithmic functions and their properties", "depth": "fluency", "est_hours": 3, "description": "Laws of exponents and logarithms, solving exponential/log equations, graphs." },
+        { "slug": "trig-functions-unit-circle", "name": "Trigonometric functions and the unit circle", "depth": "fluency", "est_hours": 3, "description": "Radian measure, the six trig functions, exact values, periodicity, graphs." },
+        { "slug": "trig-identities", "name": "Fundamental trigonometric identities", "depth": "procedural", "est_hours": 2, "description": "Pythagorean, sum/difference, double-angle, half-angle identities.", "prerequisites": ["trig-functions-unit-circle"] },
+        { "slug": "inverse-trig-functions", "name": "Inverse trigonometric functions", "depth": "procedural", "est_hours": 2, "description": "Definitions, restricted domains, principal values, graphs.", "prerequisites": ["trig-functions-unit-circle", "function-composition-inverse"] },
+        { "slug": "solving-equations-inequalities", "name": "Solving equations and inequalities", "depth": "procedural", "est_hours": 2, "description": "Algebraic, absolute-value, and sign-chart methods for inequalities." },
+        { "slug": "absolute-value-piecewise", "name": "Absolute value and piecewise-defined functions", "depth": "procedural", "est_hours": 1.5, "description": "Working with piecewise definitions; |x| as a piecewise function." },
+        { "slug": "transformations-of-graphs", "name": "Shifting, scaling, and reflecting graphs", "depth": "procedural", "est_hours": 1.5, "description": "Recognizing f(x−a)+b, cf(x), f(cx), −f(x), f(−x) transformations.", "prerequisites": ["functions-domain-range"] }
+      ]
+    },
+    {
+      "slug": "limits-and-continuity",
+      "name": "Limits and Continuity",
+      "description": "The foundational concept of calculus: limiting behavior of functions and what it means to be continuous.",
+      "subtopics": [
+        { "slug": "intuitive-limits", "name": "The intuitive idea of a limit; numerical and graphical estimation", "depth": "procedural", "est_hours": 2, "description": "Reading limits off graphs and tables; when limits fail to exist." },
+        { "slug": "one-sided-limits", "name": "One-sided limits", "depth": "procedural", "est_hours": 1.5, "description": "Left- and right-hand limits and their relation to two-sided limits.", "prerequisites": ["intuitive-limits"] },
+        { "slug": "limit-laws", "name": "Limit laws and algebraic evaluation of limits", "depth": "fluency", "est_hours": 3, "description": "Sum/product/quotient laws; factoring, conjugates, and simplification tricks.", "prerequisites": ["intuitive-limits"] },
+        { "slug": "squeeze-theorem", "name": "The squeeze (sandwich) theorem", "depth": "fluency", "est_hours": 1.5, "description": "Bounding a function to force a limit; classic oscillation examples.", "prerequisites": ["limit-laws"] },
+        { "slug": "trig-limits", "name": "Special trigonometric limits", "depth": "fluency", "est_hours": 2, "description": "sin(x)/x → 1 and (1−cos x)/x → 0, and limits built from them.", "prerequisites": ["squeeze-theorem", "trig-functions-unit-circle"] },
+        { "slug": "infinite-limits-vertical-asymptotes", "name": "Infinite limits and vertical asymptotes", "depth": "procedural", "est_hours": 1.5, "description": "Limits that grow without bound; locating vertical asymptotes.", "prerequisites": ["one-sided-limits"] },
+        { "slug": "limits-at-infinity", "name": "Limits at infinity and horizontal asymptotes", "depth": "fluency", "est_hours": 2, "description": "End behavior of rational, exponential, and root functions.", "prerequisites": ["limit-laws"] },
+        { "slug": "epsilon-delta", "name": "The precise (epsilon–delta) definition of a limit", "depth": "proof", "est_hours": 4, "description": "Formal definition; writing epsilon–delta proofs for simple limits.", "prerequisites": ["limit-laws"] },
+        { "slug": "continuity-definition", "name": "Continuity at a point and on an interval", "depth": "fluency", "est_hours": 2, "description": "The three-part definition; continuity of standard function classes.", "prerequisites": ["limit-laws"] },
+        { "slug": "discontinuity-types", "name": "Classifying discontinuities", "depth": "procedural", "est_hours": 1.5, "description": "Removable, jump, and infinite discontinuities; repairing removable ones.", "prerequisites": ["continuity-definition"] },
+        { "slug": "intermediate-value-theorem", "name": "The Intermediate Value Theorem and its applications", "depth": "fluency", "est_hours": 2, "description": "Statement, hypotheses, and using the IVT to locate roots.", "prerequisites": ["continuity-definition"] }
+      ]
+    },
+    {
+      "slug": "derivative-definition-basic-rules",
+      "name": "The Derivative: Definition and Basic Rules",
+      "description": "What a derivative is, and the core rules for computing derivatives of algebraic functions.",
+      "subtopics": [
+        { "slug": "rates-of-change", "name": "Average versus instantaneous rate of change", "depth": "fluency", "est_hours": 2, "description": "Secant vs tangent slopes; rates of change in physical contexts.", "prerequisites": ["intuitive-limits"] },
+        { "slug": "derivative-limit-definition", "name": "The derivative as a limit of difference quotients", "depth": "proof", "est_hours": 3, "description": "Computing derivatives from the definition; where derivatives fail to exist.", "prerequisites": ["limit-laws", "rates-of-change"] },
+        { "slug": "tangent-lines", "name": "Tangent lines and slopes of curves", "depth": "procedural", "est_hours": 1.5, "description": "Finding equations of tangent lines at a point.", "prerequisites": ["derivative-limit-definition"] },
+        { "slug": "differentiability", "name": "Differentiability and its relation to continuity", "depth": "fluency", "est_hours": 2, "description": "Corners, cusps, vertical tangents; differentiable implies continuous.", "prerequisites": ["derivative-limit-definition", "continuity-definition"] },
+        { "slug": "derivative-as-function", "name": "The derivative as a function; higher-order derivatives", "depth": "procedural", "est_hours": 1.5, "description": "Sketching f′ from f; second and higher derivatives.", "prerequisites": ["derivative-limit-definition"] },
+        { "slug": "derivative-notation", "name": "Derivative notations and their meaning", "depth": "awareness", "est_hours": 0.5, "description": "Leibniz (dy/dx), Lagrange (f′), and dot notation; when each is used." },
+        { "slug": "power-rule", "name": "The power rule", "depth": "procedural", "est_hours": 1.5, "description": "Differentiating x^n for integer, rational, and real exponents.", "prerequisites": ["derivative-limit-definition"] },
+        { "slug": "constant-sum-rules", "name": "Constant multiple and sum/difference rules", "depth": "procedural", "est_hours": 1, "description": "Linearity of differentiation; differentiating polynomials.", "prerequisites": ["power-rule"] },
+        { "slug": "product-rule", "name": "The product rule", "depth": "fluency", "est_hours": 2, "description": "Statement, use, and derivation of the product rule.", "prerequisites": ["constant-sum-rules"] },
+        { "slug": "quotient-rule", "name": "The quotient rule", "depth": "fluency", "est_hours": 2, "description": "Statement and use; deriving it from the product rule.", "prerequisites": ["product-rule"] }
+      ]
+    },
+    {
+      "slug": "chain-rule-transcendental",
+      "name": "Chain Rule and Derivatives of Transcendental Functions",
+      "description": "Differentiating compositions and the trigonometric, exponential, and logarithmic families.",
+      "subtopics": [
+        { "slug": "chain-rule", "name": "The chain rule", "depth": "fluency", "est_hours": 3, "description": "Differentiating composite functions, including nested compositions.", "prerequisites": ["function-composition-inverse", "product-rule"] },
+        { "slug": "trig-derivatives", "name": "Derivatives of the six trigonometric functions", "depth": "procedural", "est_hours": 2, "description": "d/dx of sin, cos, tan, cot, sec, csc; deriving sin′ from special limits.", "prerequisites": ["trig-limits", "quotient-rule"] },
+        { "slug": "exp-derivatives", "name": "Derivatives of exponential functions and the number e", "depth": "fluency", "est_hours": 2, "description": "Why e is special; differentiating e^x and a^x.", "prerequisites": ["exponential-log-functions", "chain-rule"] },
+        { "slug": "log-derivatives", "name": "Derivatives of logarithmic functions", "depth": "fluency", "est_hours": 2, "description": "Differentiating ln x and log_a x, including composite arguments.", "prerequisites": ["exp-derivatives"] },
+        { "slug": "inverse-trig-derivatives", "name": "Derivatives of inverse trigonometric functions", "depth": "procedural", "est_hours": 2, "description": "d/dx of arcsin, arccos, arctan and friends.", "prerequisites": ["inverse-trig-functions", "chain-rule"] },
+        { "slug": "hyperbolic-functions", "name": "Hyperbolic functions and their derivatives", "depth": "awareness", "est_hours": 1.5, "description": "sinh, cosh, tanh: definitions, identities, derivatives.", "prerequisites": ["exp-derivatives"] },
+        { "slug": "mixed-differentiation-practice", "name": "Differentiating functions that combine all rule families", "depth": "fluency", "est_hours": 2, "description": "Fluently choosing and combining product, quotient, and chain rules.", "prerequisites": ["chain-rule", "trig-derivatives", "log-derivatives"] }
+      ]
+    },
+    {
+      "slug": "advanced-differentiation",
+      "name": "Advanced Differentiation Techniques",
+      "description": "Differentiation beyond y = f(x): implicit relations, parametric curves, and logarithmic tricks.",
+      "subtopics": [
+        { "slug": "implicit-differentiation", "name": "Implicit differentiation", "depth": "fluency", "est_hours": 3, "description": "Differentiating relations like x² + y² = 25; finding dy/dx implicitly.", "prerequisites": ["chain-rule"] },
+        { "slug": "logarithmic-differentiation", "name": "Logarithmic differentiation", "depth": "procedural", "est_hours": 1.5, "description": "Differentiating products, quotients, and f(x)^g(x) via logarithms.", "prerequisites": ["log-derivatives", "implicit-differentiation"] },
+        { "slug": "derivatives-of-inverse-functions", "name": "Derivatives of inverse functions", "depth": "fluency", "est_hours": 2, "description": "The formula (f⁻¹)′(b) = 1/f′(a) and its geometric meaning.", "prerequisites": ["function-composition-inverse", "chain-rule"] },
+        { "slug": "parametric-differentiation", "name": "Derivatives of parametric curves", "depth": "procedural", "est_hours": 2, "description": "dy/dx and d²y/dx² for curves given by x(t), y(t).", "prerequisites": ["chain-rule"] },
+        { "slug": "tangents-implicit-parametric", "name": "Tangent and normal lines to implicit and parametric curves", "depth": "procedural", "est_hours": 1.5, "description": "Applying implicit/parametric derivatives to find tangent and normal lines.", "prerequisites": ["implicit-differentiation", "parametric-differentiation"] },
+        { "slug": "second-derivatives-implicit", "name": "Second derivatives of implicit relations", "depth": "procedural", "est_hours": 1.5, "description": "Computing d²y/dx² implicitly and simplifying with the original relation.", "prerequisites": ["implicit-differentiation"] }
+      ]
+    },
+    {
+      "slug": "applications-derivatives-analysis",
+      "name": "Applications of Derivatives I: Analysis of Functions",
+      "description": "Using derivatives to understand the shape and behavior of functions, and the classical theorems behind it.",
+      "subtopics": [
+        { "slug": "extreme-values", "name": "Absolute and local extrema; critical points", "depth": "fluency", "est_hours": 2, "description": "Finding and classifying critical points; closed-interval method.", "prerequisites": ["derivative-as-function"] },
+        { "slug": "extreme-value-theorem", "name": "The Extreme Value Theorem", "depth": "procedural", "est_hours": 1, "description": "Statement and hypotheses; why continuity on a closed interval matters.", "prerequisites": ["continuity-definition"] },
+        { "slug": "rolles-theorem", "name": "Rolle's Theorem", "depth": "fluency", "est_hours": 1.5, "description": "Statement, geometric meaning, and applications to roots of f′.", "prerequisites": ["extreme-values"] },
+        { "slug": "mean-value-theorem", "name": "The Mean Value Theorem and its consequences", "depth": "proof", "est_hours": 3, "description": "Statement and proof from Rolle's; consequences (f′=0 implies constant).", "prerequisites": ["rolles-theorem"] },
+        { "slug": "first-derivative-test", "name": "Monotonicity and the first derivative test", "depth": "fluency", "est_hours": 2, "description": "Increasing/decreasing intervals; classifying extrema from sign of f′.", "prerequisites": ["extreme-values", "mean-value-theorem"] },
+        { "slug": "concavity-second-derivative-test", "name": "Concavity, inflection points, and the second derivative test", "depth": "fluency", "est_hours": 2, "description": "Reading concavity from f″; inflection points; second derivative test.", "prerequisites": ["first-derivative-test"] },
+        { "slug": "curve-sketching", "name": "Complete curve sketching", "depth": "fluency", "est_hours": 3, "description": "Combining domain, asymptotes, monotonicity, and concavity into a full sketch.", "prerequisites": ["concavity-second-derivative-test", "limits-at-infinity"] },
+        { "slug": "lhopital", "name": "Indeterminate forms and L'Hôpital's rule", "depth": "fluency", "est_hours": 2.5, "description": "0/0, ∞/∞, and the algebraic conversions for 0·∞, ∞−∞, 1^∞, 0⁰, ∞⁰.", "prerequisites": ["chain-rule", "limits-at-infinity"] },
+        { "slug": "newtons-method", "name": "Newton's method for approximating roots", "depth": "procedural", "est_hours": 1.5, "description": "The iteration formula, geometric picture, and failure cases.", "prerequisites": ["tangent-lines"] }
+      ]
+    },
+    {
+      "slug": "applications-derivatives-modelling",
+      "name": "Applications of Derivatives II: Modelling and Problem Solving",
+      "description": "Derivatives applied to real-world quantities: optimization, related rates, approximation, and motion.",
+      "subtopics": [
+        { "slug": "related-rates", "name": "Related rates problems", "depth": "fluency", "est_hours": 3, "description": "Linking rates of change of related quantities via implicit differentiation.", "prerequisites": ["implicit-differentiation"] },
+        { "slug": "linear-approximation", "name": "Linearization and differentials", "depth": "fluency", "est_hours": 2, "description": "Tangent-line approximation; using dy to estimate change.", "prerequisites": ["tangent-lines"] },
+        { "slug": "real-world-optimization", "name": "Using derivatives to solve real-world optimization problems", "depth": "fluency", "est_hours": 3.5, "description": "Setting up objective functions with constraints; verifying optima. The canonical example survey question.", "prerequisites": ["extreme-values", "first-derivative-test"] },
+        { "slug": "marginal-analysis", "name": "Marginal analysis and rate interpretations", "depth": "awareness", "est_hours": 1, "description": "Marginal cost/revenue and other engineering/economic rate readings of f′.", "prerequisites": ["rates-of-change"] },
+        { "slug": "rectilinear-motion", "name": "Rectilinear motion: position, velocity, acceleration", "depth": "fluency", "est_hours": 2, "description": "Kinematics via derivatives; speed vs velocity; direction changes.", "prerequisites": ["derivative-as-function"] },
+        { "slug": "error-estimation", "name": "Error propagation and sensitivity via differentials", "depth": "procedural", "est_hours": 1.5, "description": "Absolute, relative, and percentage error estimates in measurements.", "prerequisites": ["linear-approximation"] }
+      ]
+    },
+    {
+      "slug": "integration-fundamentals",
+      "name": "Integration: Antiderivatives and the Definite Integral",
+      "description": "The second pillar of calculus: accumulating change, from Riemann sums to the Fundamental Theorem.",
+      "subtopics": [
+        { "slug": "antiderivatives", "name": "Antiderivatives and the indefinite integral", "depth": "procedural", "est_hours": 2, "description": "General antiderivatives, +C, and basic antiderivative formulas.", "prerequisites": ["constant-sum-rules"] },
+        { "slug": "basic-integral-rules", "name": "Basic integration rules", "depth": "procedural", "est_hours": 2, "description": "Power rule for integrals; antiderivatives of trig, exp, and 1/x.", "prerequisites": ["antiderivatives"] },
+        { "slug": "sigma-notation", "name": "Sigma notation and summation formulas", "depth": "procedural", "est_hours": 1, "description": "Manipulating finite sums; formulas for Σk, Σk², Σk³." },
+        { "slug": "riemann-sums", "name": "The area problem and Riemann sums", "depth": "fluency", "est_hours": 2.5, "description": "Left, right, and midpoint sums; approximating area under a curve.", "prerequisites": ["sigma-notation"] },
+        { "slug": "definite-integral-definition", "name": "The definite integral as a limit of Riemann sums", "depth": "proof", "est_hours": 2.5, "description": "The formal definition; integrability of continuous functions.", "prerequisites": ["riemann-sums", "limit-laws"] },
+        { "slug": "definite-integral-properties", "name": "Properties of the definite integral", "depth": "procedural", "est_hours": 1.5, "description": "Linearity, additivity over intervals, comparison properties, signed area.", "prerequisites": ["definite-integral-definition"] },
+        { "slug": "ftc-part-1", "name": "The Fundamental Theorem of Calculus, Part 1", "depth": "proof", "est_hours": 2.5, "description": "Differentiating accumulation functions; statement and proof.", "prerequisites": ["definite-integral-properties", "mean-value-theorem"] },
+        { "slug": "ftc-part-2", "name": "The Fundamental Theorem of Calculus, Part 2 (evaluation)", "depth": "fluency", "est_hours": 2, "description": "Evaluating definite integrals with antiderivatives.", "prerequisites": ["ftc-part-1", "basic-integral-rules"] },
+        { "slug": "net-change", "name": "The net change theorem and its interpretations", "depth": "procedural", "est_hours": 1.5, "description": "Integral of a rate as net change; displacement vs distance traveled.", "prerequisites": ["ftc-part-2"] },
+        { "slug": "average-value", "name": "Average value of a function and the Mean Value Theorem for integrals", "depth": "procedural", "est_hours": 1.5, "description": "The average-value formula and its geometric meaning.", "prerequisites": ["ftc-part-2"] }
+      ]
+    },
+    {
+      "slug": "integration-techniques",
+      "name": "Techniques of Integration",
+      "description": "The toolbox for finding antiderivatives of non-elementary combinations, plus numerical and improper integrals.",
+      "subtopics": [
+        { "slug": "u-substitution", "name": "Integration by substitution (u-substitution)", "depth": "fluency", "est_hours": 3, "description": "Reversing the chain rule; substitution in definite integrals.", "prerequisites": ["chain-rule", "ftc-part-2"] },
+        { "slug": "integration-by-parts", "name": "Integration by parts", "depth": "fluency", "est_hours": 3, "description": "Reversing the product rule; repeated and cyclic applications.", "prerequisites": ["u-substitution", "product-rule"] },
+        { "slug": "trig-integrals", "name": "Integrals of powers and products of trigonometric functions", "depth": "procedural", "est_hours": 2, "description": "sinᵐx cosⁿx patterns; secant/tangent integrals; identity strategies.", "prerequisites": ["u-substitution", "trig-identities"] },
+        { "slug": "trig-substitution", "name": "Trigonometric substitution", "depth": "procedural", "est_hours": 2.5, "description": "Integrals with √(a²−x²), √(a²+x²), √(x²−a²) via trig substitutions.", "prerequisites": ["trig-integrals", "inverse-trig-functions"] },
+        { "slug": "partial-fractions", "name": "Integration by partial fraction decomposition", "depth": "fluency", "est_hours": 3, "description": "Decomposing rational functions: linear, repeated, and quadratic factors.", "prerequisites": ["u-substitution", "polynomial-rational-functions"] },
+        { "slug": "special-substitutions", "name": "Rationalizing and other special substitutions", "depth": "awareness", "est_hours": 1, "description": "Root substitutions and the Weierstrass (t = tan(x/2)) substitution.", "prerequisites": ["u-substitution"] },
+        { "slug": "integration-strategy", "name": "Choosing an integration strategy", "depth": "fluency", "est_hours": 2, "description": "Recognizing which technique applies; combining techniques in one integral.", "prerequisites": ["integration-by-parts", "trig-substitution", "partial-fractions"] },
+        { "slug": "numerical-integration", "name": "Numerical integration: trapezoidal and Simpson's rules", "depth": "procedural", "est_hours": 2, "description": "Approximating definite integrals; error bounds for each rule.", "prerequisites": ["riemann-sums"] },
+        { "slug": "improper-integrals", "name": "Improper integrals and convergence", "depth": "fluency", "est_hours": 2.5, "description": "Infinite limits of integration and unbounded integrands; comparison tests.", "prerequisites": ["ftc-part-2", "limits-at-infinity"] }
+      ]
+    },
+    {
+      "slug": "applications-integration",
+      "name": "Applications of Integration",
+      "description": "Definite integrals as a modelling tool: geometry, physics, and engineering quantities.",
+      "subtopics": [
+        { "slug": "area-between-curves", "name": "Areas between curves", "depth": "fluency", "est_hours": 2, "description": "Integrating with respect to x or y; regions requiring splitting.", "prerequisites": ["ftc-part-2"] },
+        { "slug": "volumes-disks-washers", "name": "Volumes by slicing: disks and washers", "depth": "fluency", "est_hours": 2.5, "description": "Solids of revolution and general cross-section solids.", "prerequisites": ["area-between-curves"] },
+        { "slug": "volumes-shells", "name": "Volumes by cylindrical shells", "depth": "procedural", "est_hours": 2, "description": "The shell method; choosing between shells and washers.", "prerequisites": ["volumes-disks-washers"] },
+        { "slug": "arc-length", "name": "Arc length of curves", "depth": "procedural", "est_hours": 1.5, "description": "The arc-length integral for y = f(x) and parametric curves.", "prerequisites": ["ftc-part-2", "u-substitution"] },
+        { "slug": "surface-area-revolution", "name": "Surface area of solids of revolution", "depth": "procedural", "est_hours": 1.5, "description": "The surface-of-revolution integral.", "prerequisites": ["arc-length"] },
+        { "slug": "work-applications", "name": "Work: springs, lifting, and pumping problems", "depth": "procedural", "est_hours": 2, "description": "Work as an integral of force; Hooke's law and pumping problems.", "prerequisites": ["ftc-part-2"] },
+        { "slug": "moments-center-of-mass", "name": "Moments and center of mass", "depth": "awareness", "est_hours": 1.5, "description": "Centroids of plane regions via integrals.", "prerequisites": ["area-between-curves"] },
+        { "slug": "fluid-force", "name": "Physical applications: fluid force and pressure", "depth": "awareness", "est_hours": 1, "description": "Hydrostatic force on submerged surfaces as an integral.", "prerequisites": ["ftc-part-2"] }
+      ]
+    },
+    {
+      "slug": "sequences-and-series",
+      "name": "Sequences and Series",
+      "description": "Infinite processes: convergence of sequences and series, and representing functions by power series.",
+      "subtopics": [
+        { "slug": "sequences-convergence", "name": "Sequences: convergence, monotonicity, and boundedness", "depth": "fluency", "est_hours": 2.5, "description": "Limits of sequences; the monotone convergence theorem.", "prerequisites": ["limits-at-infinity"] },
+        { "slug": "series-partial-sums", "name": "Infinite series and partial sums; geometric and telescoping series", "depth": "fluency", "est_hours": 2.5, "description": "Convergence via partial sums; summing geometric and telescoping series.", "prerequisites": ["sequences-convergence"] },
+        { "slug": "divergence-test", "name": "The nth-term (divergence) test", "depth": "procedural", "est_hours": 1, "description": "When terms don't go to zero; what the test cannot conclude.", "prerequisites": ["series-partial-sums"] },
+        { "slug": "integral-test-p-series", "name": "The integral test and p-series", "depth": "procedural", "est_hours": 2, "description": "Linking series to improper integrals; convergence of Σ1/nᵖ.", "prerequisites": ["improper-integrals", "series-partial-sums"] },
+        { "slug": "comparison-tests", "name": "Direct and limit comparison tests", "depth": "fluency", "est_hours": 2, "description": "Comparing to known series; choosing good comparison candidates.", "prerequisites": ["integral-test-p-series"] },
+        { "slug": "alternating-series", "name": "Alternating series, the alternating series test, and error bounds", "depth": "fluency", "est_hours": 2, "description": "Leibniz test and estimating remainders of alternating series.", "prerequisites": ["series-partial-sums"] },
+        { "slug": "absolute-conditional-convergence", "name": "Absolute versus conditional convergence", "depth": "fluency", "est_hours": 1.5, "description": "Definitions, implications, and rearrangement caveats.", "prerequisites": ["alternating-series", "comparison-tests"] },
+        { "slug": "ratio-root-tests", "name": "The ratio and root tests", "depth": "fluency", "est_hours": 2, "description": "Applying both tests; the inconclusive case.", "prerequisites": ["absolute-conditional-convergence"] },
+        { "slug": "power-series", "name": "Power series: radius and interval of convergence", "depth": "fluency", "est_hours": 2.5, "description": "Finding where a power series converges; endpoint analysis.", "prerequisites": ["ratio-root-tests"] },
+        { "slug": "taylor-maclaurin-series", "name": "Taylor and Maclaurin series", "depth": "fluency", "est_hours": 3, "description": "Deriving series for eˣ, sin, cos, ln(1+x), (1+x)ᵏ; manipulation of known series.", "prerequisites": ["power-series"] },
+        { "slug": "taylor-polynomials-remainder", "name": "Taylor polynomials and the remainder estimate", "depth": "procedural", "est_hours": 2, "description": "Approximating functions; Lagrange error bound.", "prerequisites": ["taylor-maclaurin-series"] },
+        { "slug": "series-applications", "name": "Using series for approximation, integration, and limits", "depth": "procedural", "est_hours": 2, "description": "Series solutions to hard integrals and limits; approximation to a tolerance.", "prerequisites": ["taylor-maclaurin-series"] }
+      ]
+    },
+    {
+      "slug": "intro-differential-equations",
+      "name": "Introduction to Differential Equations",
+      "description": "First contact with ODEs: qualitative pictures, separable and linear first-order equations, and growth models.",
+      "subtopics": [
+        { "slug": "what-is-an-ode", "name": "What a differential equation is; verifying solutions", "depth": "procedural", "est_hours": 1.5, "description": "Order, general vs particular solutions, initial conditions.", "prerequisites": ["antiderivatives"] },
+        { "slug": "slope-fields", "name": "Slope (direction) fields and qualitative behavior", "depth": "procedural", "est_hours": 1.5, "description": "Sketching and reading slope fields; equilibrium solutions.", "prerequisites": ["what-is-an-ode"] },
+        { "slug": "separable-equations", "name": "Separable differential equations", "depth": "fluency", "est_hours": 2.5, "description": "Solving by separation of variables; initial value problems.", "prerequisites": ["what-is-an-ode", "u-substitution"] },
+        { "slug": "exponential-growth-decay", "name": "Exponential growth and decay models", "depth": "fluency", "est_hours": 2, "description": "y′ = ky: population, radioactive decay, Newton's law of cooling, interest.", "prerequisites": ["separable-equations"] },
+        { "slug": "logistic-model", "name": "The logistic growth model", "depth": "procedural", "est_hours": 1.5, "description": "Carrying capacity; solving and interpreting the logistic equation.", "prerequisites": ["exponential-growth-decay", "partial-fractions"] },
+        { "slug": "first-order-linear", "name": "First-order linear equations and integrating factors", "depth": "procedural", "est_hours": 2, "description": "The integrating-factor method for y′ + p(x)y = q(x).", "prerequisites": ["separable-equations", "product-rule"] },
+        { "slug": "eulers-method", "name": "Euler's method for numerical solutions", "depth": "awareness", "est_hours": 1, "description": "Step-by-step numerical approximation of ODE solutions.", "prerequisites": ["slope-fields", "linear-approximation"] }
+      ]
+    }
+  ]
+}
