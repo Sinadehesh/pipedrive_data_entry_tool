@@ -35,9 +35,7 @@ import * as schema from "./schema";
  * exists so that misconfiguration is loud.
  */
 declare global {
-  // eslint-disable-next-line no-var
   var __db: PostgresJsDatabase<typeof schema> | undefined;
-  // eslint-disable-next-line no-var
   var __rlsDb: PostgresJsDatabase<typeof schema> | undefined;
 }
 

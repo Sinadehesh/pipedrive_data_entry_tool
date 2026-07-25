@@ -77,7 +77,7 @@ export default async function SyncSettingsPage({
           Google Workspace connected
           {params.warn === "watches"
             ? " — but live notifications couldn't be armed yet; we'll keep retrying automatically (see the connection card)."
-            : " — importing the last 90 days of email and meetings now."}
+            : " — importing the last 14 days of email and meetings now."}
         </Banner>
       )}
       {params.error && <Banner tone="error">{errorMessage(params.error)}</Banner>}
@@ -209,8 +209,9 @@ function GoogleCard({ row }: { row: ConnectionRow | null }) {
       </div>
       {row && (
         <p className="mt-2 text-xs text-slate-400">
-          Connecting imports the last 90 days of prospect email and external
-          meetings, then stays live via push notifications.
+          Connecting imports the last 14 days of prospect email and external
+          meetings — which will add notes to matching deals — then stays live
+          via push notifications.
         </p>
       )}
       {row?.status === "error" && row.lastError && (

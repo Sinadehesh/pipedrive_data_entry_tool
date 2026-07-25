@@ -12,8 +12,8 @@ import {
   getMessage,
   GmailHistoryExpiredError,
   listHistory,
-  type GmailMessage,
 } from "@/lib/google/gmail";
+import { shouldIngest } from "@/lib/ingest/relevance";
 import { inngest } from "@/inngest/client";
 
 /** Window for the full resync after a stale (404'd) cursor. */
@@ -201,43 +201,3 @@ export const gmailHistory = inngest.createFunction(
     };
   },
 );
-
-/**
- * CRM-relevance filter. Two hard rules from the architecture:
- *
- *   1. Internal-only threads are noise — at least one correspondent must be
- *      outside the TENANT's internalDomains.
- *   2. Automated/bulk mail is noise — List-Unsubscribe or Precedence:
- *      bulk/list headers, or a no-reply sender, mean a machine wrote it.
- *
- * Also skips drafts/chats/spam/trash by label. Deliberately permissive
- * beyond that: a false positive costs one harmless ledger row, a false
- * negative silently loses relationship history.
- */
-export function shouldIngest(
-  message: GmailMessage,
-  internalDomainSet: Set<string>,
-): boolean {
-  const skipLabels = ["DRAFT", "CHAT", "SPAM", "TRASH"];
-  if (message.labelIds.some((l) => skipLabels.includes(l))) return false;
-
-  // Newsletters, receipts, CI noise, calendar robots.
-  if (message.hasListUnsubscribe) return false;
-  const precedence = message.precedence?.toLowerCase();
-  if (precedence === "bulk" || precedence === "list") return false;
-  if (message.fromEmail && /^(no[-._]?reply|do[-._]?not[-._]?reply)@/.test(message.fromEmail)) {
-    return false;
-  }
-
-  // Internal-only thread: every correspondent is on a tenant domain.
-  const hasExternal = message.participants.some((p) => {
-    const domain = p.email.split("@")[1]?.toLowerCase();
-    return domain && !internalDomainSet.has(domain);
-  });
-  if (!hasExternal) return false;
-
-  // Nothing extractable.
-  if (message.bodyText.trim().length === 0) return false;
-
-  return true;
-}

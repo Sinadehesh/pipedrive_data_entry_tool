@@ -4,8 +4,9 @@ import { db } from "@/lib/db/client";
 import { connections, interactions, tenants } from "@/lib/db/schema";
 import { listEventsDelta } from "@/lib/google/calendar";
 import { boundedResync, getMessage } from "@/lib/google/gmail";
+import { shouldIngest } from "@/lib/ingest/relevance";
 import { inngest } from "@/inngest/client";
-import { shouldIngest } from "./gmail-history";
+
 
 /** Hard ceiling on messages pulled per backfill, regardless of window. */
 const MAX_BACKFILL_MESSAGES = 2_000;

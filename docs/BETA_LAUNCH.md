@@ -55,19 +55,16 @@ meeting flows through extraction → `create_note` → the tenant's Pipedrive.
 A new beta customer could see **hundreds of notes appear retroactively on
 live deals**. That is a trust-destroying first impression if unexpected.
 
-Options (pick one before the first external connect):
+**✅ Resolved — option 1 shipped.** The window is now **14 days**
+(`src/app/api/oauth/google/route.ts`), and the Google connect card states
+plainly that connecting "will add notes to matching deals." Two weeks still
+gives the staleness sweep an honest view of freshness on day one while
+bounding both first-run note volume and LLM spend.
 
-1. **Shorten the window.** `src/app/api/oauth/google/route.ts` → `days: 90`
-   → `days: 14`. One-line change, lowest risk, still populates the ledger
-   enough for the staleness sweep to be honest.
-2. **Suppress notes for backfilled rows.** Have `backfill.ts` mark
-   interactions (e.g. a `backfilled` flag) and have `persistAndEnqueue` skip
-   the `create_note` op for them — ledger + intel + freshness still work,
-   nothing is written to the CRM retroactively.
-3. **Ship 90 days as-is and warn the user on the connect screen.**
-
-Recommended for beta: **(1) + explicit copy on the Google card**, or (2) if
-you have time to implement it.
+If you later want a longer history, do it via option 2 rather than raising
+the number: mark backfilled interactions (e.g. a `backfilled` flag) and have
+`persistAndEnqueue` skip the `create_note` op for them. Ledger, intel, and
+freshness all still work; nothing is written to the CRM retroactively.
 
 ### 0.3 ☐ Confirm the extraction model / cost per tenant
 
@@ -262,9 +259,11 @@ OAuth redirect URI and per-tenant webhook URL is derived from it.
   1. **It is not a valid workflow file.** It begins at `steps:` with no
      top-level `name:` / `on:` / `jobs:` — GitHub rejects it with a syntax
      error and it never runs.
-  2. **`npm run lint` does not exist.** `package.json` has no `lint` script
-     and eslint is not a dependency. Use `npm run typecheck` (which does
-     exist), or add eslint first.
+  2. ~~**`npm run lint` does not exist.**~~ **Fixed** — eslint 9 (flat
+     config, `next/core-web-vitals` + `next/typescript`) and a `lint` script
+     are now in the repo, and the tree lints clean. `npm test` (vitest) also
+     exists now; the corrected workflow runs lint + typecheck + test +
+     build, all verified passing.
   3. **The build fails with the env vars given.** `src/auth.ts` calls
      `env()` at module scope, so the zod schema is validated during page-data
      collection. `ANTHROPIC_API_KEY` (required, `min(1)`) is missing →
@@ -291,8 +290,17 @@ Do the whole customer journey yourself, on a **Pipedrive sandbox**.
 - [ ] **5.2** Connect Pipedrive → `connections` row, `status=active`.
 - [ ] **5.3** Open `/settings/sync` → the field-mapping table lists *your*
       Pipedrive deal fields. **Leave mappings empty** (notes-only, per 0.4).
-- [ ] **5.4 Call path:** connect Claap or Zoom, register the webhook, record
-      a short real call with an external participant. Then verify the chain:
+- [ ] **5.4 Call path.** Fastest first proof — fire a synthetic, correctly
+      signed Claap webhook and watch the pipeline run end to end:
+
+```bash
+npm run seed:call -- --tenant <tenantId> --secret <your-claap-webhook-secret>
+# add --url https://app.yourdomain.com to hit a deployed instance
+```
+
+      The script prints the exact SQL to follow the row through each stage.
+      Then do it for real: connect Claap or Zoom, register the webhook,
+      record a short call with an external participant, and verify the chain:
       `raw_events` → `interactions` → `extractions` → `sync_outbox`
       (`completed`) → `sync_log` → **a note on the right deal in Pipedrive**.
 - [ ] **5.5 Confidence gate:** confirm a low-confidence extraction appears in

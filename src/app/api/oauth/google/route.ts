@@ -136,11 +136,19 @@ export async function GET(req: Request) {
     watchErrors.push(`gcal: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Day-one completeness: import the last 90 days through the same
+  // Day-one completeness: import a recent window through the same
   // ledger -> extract -> sync pipeline the live planes use.
+  //
+  // 14 days, not 90, and deliberately so: every backfilled interaction
+  // produces a NOTE on the tenant's live deals. A 90-day import would drop
+  // hundreds of retroactive notes into a customer's CRM minutes after they
+  // connect — alarming, and expensive in LLM spend. Two weeks is enough for
+  // the staleness sweep to judge freshness honestly on day one while
+  // keeping first-run noise and cost bounded. Raise it once backfilled rows
+  // are excluded from note creation (see docs/BETA_LAUNCH.md § 0.2).
   await inngest.send({
     name: "connection/backfill.requested",
-    data: { tenantId, connectionId, provider: "google", days: 90 },
+    data: { tenantId, connectionId, provider: "google", days: 14 },
   });
 
   if (watchErrors.length > 0) {
