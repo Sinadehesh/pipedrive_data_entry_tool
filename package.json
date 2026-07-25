@@ -13,7 +13,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:call": "tsx scripts/seed-call.ts"
+    "seed:call": "tsx scripts/seed-call.ts",
+    "doctor": "tsx scripts/doctor.ts",
+    "gen:secrets": "node -e \"const c=require('crypto');console.log('AUTH_SECRET='+c.randomBytes(32).toString('base64'));console.log('TOKEN_ENCRYPTION_KEY='+c.randomBytes(32).toString('base64'))\""
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
