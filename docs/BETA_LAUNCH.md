@@ -254,11 +254,30 @@ OAuth redirect URI and per-tenant webhook URL is derived from it.
   - `staleness-dispatch` — `0 3 * * *`
   - `drain-outbox` — `*/5 * * * *`
 
-- [ ] **4.5 Fix CI** — `.github/workflows/nextjs.yml` on the remote is still
-      the GitHub Pages static-export template, which cannot build this app
-      (API routes, server actions, Postgres). Replace it with the
-      install/typecheck/build workflow (file already provided) via GitHub's
-      web editor, or with a PAT that has `workflow` scope.
+- [ ] **4.5 Fix CI.** The GitHub Pages static-export deploy has been removed
+      (good — it could never build this app). The current
+      `.github/workflows/nextjs.yml` still needs four fixes; all were
+      verified against the repo:
+
+  1. **It is not a valid workflow file.** It begins at `steps:` with no
+     top-level `name:` / `on:` / `jobs:` — GitHub rejects it with a syntax
+     error and it never runs.
+  2. **`npm run lint` does not exist.** `package.json` has no `lint` script
+     and eslint is not a dependency. Use `npm run typecheck` (which does
+     exist), or add eslint first.
+  3. **The build fails with the env vars given.** `src/auth.ts` calls
+     `env()` at module scope, so the zod schema is validated during page-data
+     collection. `ANTHROPIC_API_KEY` (required, `min(1)`) is missing →
+     *"Failed to collect page data for /api/oauth/pipedrive"*. Reproduced
+     locally with exactly the workflow's env block.
+  4. **`ENCRYPTION_KEY` is the wrong name** — the app reads
+     `TOKEN_ENCRYPTION_KEY`. Harmless at build time (it is optional there),
+     but misleading; rename it.
+
+  A corrected file is provided alongside this runbook. Note the token used
+  by this session cannot push `.github/workflows/**` (fine-grained PATs need
+  the `workflow` scope), so apply it via GitHub's web editor or a scoped
+  token.
 
 ---
 
