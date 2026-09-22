@@ -25,6 +25,13 @@ export async function pipedriveAccountFor(
   const conn = await requireConnection(tenantId, "pipedrive");
   const credential = conn.credential;
 
+  if (credential.kind === "sandbox") {
+    return {
+      domain: credential.domain,
+      auth: { type: "sandbox", tenantId },
+    };
+  }
+
   if (credential.kind === "api_token") {
     return {
       domain: credential.domain,

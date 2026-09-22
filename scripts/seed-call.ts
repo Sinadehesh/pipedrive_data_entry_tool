@@ -24,9 +24,18 @@
  *   --transcript <path> Custom transcript file. Defaults to a built-in
  *                       sample containing clear BANT signals.
  *
- * NOTE: extract-call fetches the transcript from Claap's API using the
- * recording id. For a fully offline dry run, point CLAAP_API_BASE at a
- * local stub, or use this script against a real Claap recording id.
+ *   --offline           Encode the transcript into the recording id and
+ *                       let the local stub serve it back, so NO Claap
+ *                       workspace is needed. Requires the app running with
+ *                       ALLOW_DEV_STUBS=1 and
+ *                       CLAAP_API_BASE=<url>/api/dev/claap-stub
+ *
+ * Combined with a sandbox Pipedrive connection (npm run sandbox:connect),
+ * `--offline` runs the entire pipeline with no third-party account at all:
+ *
+ *   npm run sandbox:connect -- --name "Acme" --domain acme.com
+ *   npm run seed:call -- --tenant <id> --secret <secret> --offline
+ *   npm run sandbox:report -- --tenant <id>
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -72,7 +81,25 @@ async function main(): Promise<void> {
     ? readFileSync(transcriptPath, "utf8")
     : SAMPLE_TRANSCRIPT;
 
-  const recordingId = `seed-${randomUUID()}`;
+  const offline = process.argv.includes("--offline");
+
+  // Offline: the recording id IS the recording. The stub route decodes it,
+  // so extract-call's real Claap fetch + mapping code still runs.
+  const recordingId = offline
+    ? `offline-${Buffer.from(
+        JSON.stringify({
+          title: "Discovery call (seeded)",
+          occurredAt: new Date().toISOString(),
+          participants: [
+            { email, name: "Jane Doe" },
+            { email: `rep@${arg("internal") ?? "example.com"}`, name: "Rep", isHost: true },
+          ],
+          text: transcript,
+        }),
+        "utf8",
+      ).toString("base64url")}`
+    : `seed-${randomUUID()}`;
+
   const body = JSON.stringify({
     id: `evt-${randomUUID()}`,
     type: "recording.completed",
@@ -103,7 +130,9 @@ async function main(): Promise<void> {
     console.log("  4. select status, overall_confidence from extractions order by created_at desc limit 1;");
     console.log("  5. select op, status, last_error from sync_outbox order by created_at desc limit 5;");
     console.log("  6. select * from sync_log order by created_at desc limit 5;");
-    console.log("  → then look for the note on the deal in Pipedrive.");
+    console.log("  → then look for the note on the deal in Pipedrive,");
+    console.log("    or run `npm run sandbox:report -- --tenant <id>` if this");
+    console.log("    tenant is on a sandbox Pipedrive connection.");
     console.log("\nIf the extraction lands below 0.8 confidence it will be");
     console.log("waiting in /review instead — that is working as designed.");
   } else if (res.status === 401) {

@@ -132,7 +132,20 @@ export type PipedriveCredential =
       refreshToken: string;
       /** ISO timestamp when accessToken expires. */
       expiresAt: string;
-    };
+    }
+  /**
+   * No real Pipedrive account. Every API call is served by the deterministic
+   * simulator in src/lib/pipedrive/sandbox.ts and each write is appended to
+   * `sandbox_writes` instead of leaving the building.
+   *
+   * This exists so the full pipeline — ingest, extract, identity resolution,
+   * reconcile — can be exercised end to end before a CRM is connected, and
+   * so a prospect can watch exactly what we WOULD write to their Pipedrive
+   * without granting write access first. It is a real connection row with a
+   * real tenant, not a feature flag: nothing else in the codebase branches
+   * on it.
+   */
+  | { kind: "sandbox"; domain: string };
 export type ClaapCredential = { apiKey: string; webhookSecret: string };
 /**
  * Zoom needs only the webhook secret token: transcript downloads use the
@@ -465,6 +478,38 @@ export const syncLog = pgTable(
       .defaultNow(),
   },
   (t) => [index("sync_log_tenant_idx").on(t.tenantId)],
+);
+
+/**
+ * Every write a SANDBOX Pipedrive connection would have made, captured
+ * verbatim instead of being sent.
+ *
+ * This is the observable output of sandbox mode: the rendered note HTML,
+ * the custom-field patch, the person/org that would have been created. It
+ * is deliberately a separate table from `sync_log` — sync_log records that
+ * a real write happened and what its Pipedrive id was, whereas this records
+ * a write that did NOT happen and keeps the full request body so a human
+ * can read it back. Mixing them would make "did we actually touch the CRM?"
+ * unanswerable.
+ */
+export const sandboxWrites = pgTable(
+  "sandbox_writes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    method: text("method").notNull(), // POST | PATCH
+    path: text("path").notNull(), // e.g. /api/v1/notes
+    /** The exact JSON body we would have sent. */
+    requestBody: jsonb("request_body"),
+    /** The synthetic response the simulator returned to the caller. */
+    responseBody: jsonb("response_body"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("sandbox_writes_tenant_idx").on(t.tenantId, t.createdAt)],
 );
 
 /**

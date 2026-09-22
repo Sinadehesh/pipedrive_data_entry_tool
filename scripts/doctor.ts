@@ -25,9 +25,17 @@ function record(level: Level, label: string, detail?: string, fix?: string) {
   if (fix && level !== "ok") console.log(`    → ${fix}`);
 }
 
-const EXPECTED_MIGRATIONS = 6; // drizzle/0000 … 0005
+const EXPECTED_MIGRATIONS = 7; // drizzle/0000 … 0006
 
-/** Tables that must have RLS enabled by migration 0005. */
+/**
+ * 13 functions are declared in src/app/api/inngest/route.ts, but Inngest
+ * registers a function's `onFailure` handler as a function in its own
+ * right — extract-call has one, hence 14. Bump this when either number
+ * changes.
+ */
+const EXPECTED_INNGEST_FUNCTIONS = 14;
+
+/** Tables that must have RLS enabled by migrations 0005 and 0006. */
 const RLS_TABLES = [
   "raw_events",
   "interactions",
@@ -39,6 +47,7 @@ const RLS_TABLES = [
   "field_mappings",
   "competitive_intel",
   "invites",
+  "sandbox_writes",
 ];
 
 // ---------------------------------------------------------------------------
@@ -134,14 +143,17 @@ function checkEnv(): void {
   if (missingPd.length === 0) {
     record("ok", "Pipedrive OAuth vars", "set");
   } else {
-    record(
-      "fail",
-      "Pipedrive OAuth vars",
-      `missing ${missingPd.join(", ")}`,
-      "Without these no tenant can connect a CRM — nothing gets written anywhere (guide step 5).",
-    );
+    // NOT a failure on its own. These gate the self-serve OAuth connect
+    // flow only; a pasted API token or a sandbox connection needs neither.
+    // The database section escalates this to a failure when there is also
+    // no working connection, which is the state that actually means
+    // "nothing can reach a CRM".
+    pipedriveOauthMissing = missingPd;
   }
 }
+
+/** Set by checkEnv, resolved in checkDatabase once connections are known. */
+let pipedriveOauthMissing: string[] = [];
 
 function cryptoRoundTrips(key: Buffer): boolean {
   try {
@@ -253,6 +265,35 @@ async function checkDatabase(): Promise<void> {
             : undefined,
         );
       }
+    }
+
+    if (pipedriveOauthMissing.length > 0) {
+      const hasCrm = conns.some(
+        (c) => c.provider === "pipedrive" && c.status === "active",
+      );
+      record(
+        hasCrm ? "warn" : "fail",
+        "Pipedrive OAuth vars",
+        `missing ${pipedriveOauthMissing.join(", ")}`,
+        hasCrm
+          ? "Existing connections keep working; only the self-serve OAuth connect button is unavailable (guide step B3)."
+          : "No CRM can be connected and nothing gets written anywhere. Set these, paste an API token, or run `npm run sandbox:connect` (guide step A4).",
+      );
+    }
+
+    // Sandbox tenants write nowhere real — say so loudly, so a sandbox is
+    // never mistaken for a working production CRM connection.
+    const [{ count: sandboxCount }] = await sql<{ count: string }[]>`
+      select count(*)::text from connections
+      where provider = 'pipedrive' and account_ref like 'sandbox:%'
+    `;
+    if (Number(sandboxCount) > 0) {
+      record(
+        "warn",
+        "sandbox connections",
+        `${sandboxCount} tenant(s) on a SIMULATED Pipedrive`,
+        "Writes are recorded to sandbox_writes, not sent. Read them with `npm run sandbox:report -- --tenant <id>`.",
+      );
     }
 
     // Watch channels lapsing? This is how ingestion dies silently.
@@ -387,10 +428,12 @@ async function checkDeployment(): Promise<void> {
         | null;
       const n = body?.function_count;
       record(
-        n === 13 ? "ok" : "warn",
+        n === EXPECTED_INNGEST_FUNCTIONS ? "ok" : "warn",
         "Inngest endpoint",
-        n != null ? `${n} functions registered (expected 13)` : "reachable",
-        n != null && n !== 13
+        n != null
+          ? `${n} functions registered (expected ${EXPECTED_INNGEST_FUNCTIONS})`
+          : "reachable",
+        n != null && n !== EXPECTED_INNGEST_FUNCTIONS
           ? "Re-sync the app in the Inngest dashboard."
           : undefined,
       );

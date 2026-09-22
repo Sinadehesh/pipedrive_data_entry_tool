@@ -9,7 +9,12 @@ export type ClaapTranscript = {
   text: string;
 };
 
-const BASE_URL = "https://api.claap.io/v1";
+/**
+ * Overridable so a local stub can stand in for Claap (see
+ * src/app/api/dev/claap-stub). Production leaves it unset and talks to the
+ * real API; there is no other behavioural difference.
+ */
+const BASE_URL = process.env.CLAAP_API_BASE ?? "https://api.claap.io/v1";
 
 /**
  * Fetch the transcript for a finished recording, authenticated with the

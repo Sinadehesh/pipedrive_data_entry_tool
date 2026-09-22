@@ -21,7 +21,13 @@ export type PipedriveAccount = {
   domain: string; // {domain}.pipedrive.com
   auth:
     | { type: "api_token"; token: string } // pasted token, x-api-token header
-    | { type: "bearer"; token: string }; // Marketplace OAuth access token
+    | { type: "bearer"; token: string } // Marketplace OAuth access token
+    /**
+     * No real account: served by the offline simulator and recorded to
+     * sandbox_writes. Carries tenantId because the interception happens
+     * below the layer that knows which tenant it is acting for.
+     */
+    | { type: "sandbox"; tenantId: string };
 };
 
 export class PipedriveRateLimitError extends Error {
@@ -48,6 +54,20 @@ export async function pipedrive<T>(
   path: string, // e.g. "/api/v2/persons/search"
   opts: { query?: Record<string, string>; body?: unknown } = {},
 ): Promise<T> {
+  // Sandbox connections never touch the network. This is the ONLY branch
+  // on sandbox in the request path — records.ts, the identity resolver and
+  // the reconciler are all unaware, which is the point: what gets tested
+  // under sandbox is the real code path, not a parallel one.
+  if (account.auth.type === "sandbox") {
+    const { simulatePipedrive } = await import("./sandbox");
+    return (await simulatePipedrive(
+      account.auth.tenantId,
+      method,
+      path,
+      opts,
+    )) as T;
+  }
+
   const url = new URL(`https://${account.domain}.pipedrive.com${path}`);
   for (const [k, v] of Object.entries(opts.query ?? {})) {
     url.searchParams.set(k, v);

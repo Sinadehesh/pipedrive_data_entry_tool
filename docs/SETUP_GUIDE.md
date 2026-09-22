@@ -1,375 +1,237 @@
-# Setup Guide — what only you can do
+# Setup Guide
 
-This is the **human-only** list: every step here needs you in a browser,
-signing up for something, clicking consent, or holding a credential. Anything
-that could be automated has been, and is called out as `npm run …`.
+Two tracks. **Track A** gets the app running and provably doing data entry
+today, with no Pipedrive account, no Google review, and nothing to pay for.
+**Track B** is the long-pole work to point it at a real CRM and real
+mailboxes.
 
-Work top to bottom. After each numbered step, run:
-
-```bash
-npm run doctor
-```
-
-It checks env vars, database, migrations, RLS *enforcement* (not just that
-it's switched on), watch health, outbox backlog, and — once deployed — that
-your endpoints answer correctly. Every failure prints the fix.
-
-**Time:** ~2–3 focused hours, except step 4c (Google verification) which is
-weeks of waiting you should start on day one.
-
----
-
-## Legend
+Do Track A first. It is ~30 minutes and it answers the only question that
+matters right now: *does the extraction pipeline actually produce correct
+CRM writes?*
 
 | | |
 |---|---|
-| 🧍 | Only you can do it (console, signup, consent, payment) |
-| 🤖 | Already automated — just run the command |
-| ⏳ | Starts a clock you don't control |
+| 🧍 | Only you can do it — an account, a password, a billing decision |
+| 🤖 | A command I wrote. Run it; don't hand-verify it |
+| ⏳ | A clock you don't control |
 
 ---
 
-## 1. 🧍 Accounts (~20 min)
+## About the Pipedrive trial
 
-Create these and keep the tabs open — later steps need values from each.
+Your trial ended, so you cannot connect a real Pipedrive. That does not
+block you. Three options, in the order I'd take them:
 
-| Service | What for | Plan note |
-|---|---|---|
-| [Neon](https://neon.tech) or [Supabase](https://supabase.com) | Postgres | Free tier is fine for beta |
-| [Vercel](https://vercel.com) | Hosting | Hobby works; Pro if you want longer function limits |
-| [Inngest](https://inngest.com) | Background jobs | Free tier covers a small beta |
-| [Anthropic Console](https://console.anthropic.com) | Extraction LLM | **Set a spend alert now** — see §7 |
-| [Google Cloud](https://console.cloud.google.com) | Sign-in + Gmail/Calendar | Free |
-| [Pipedrive developer sandbox](https://developers.pipedrive.com) | CRM OAuth app | Free |
+1. **Sandbox mode (Track A).** Ships in this repo. Every CRM write is
+   simulated and recorded so you can read back exactly what would have been
+   written. Free, instant, and it exercises the real code path — the
+   reconciler, the identity resolver and the confidence gate do not know
+   they're in a sandbox.
+2. **A Pipedrive developer sandbox account.** Pipedrive's Developer Hub
+   offers free, non-expiring sandbox accounts for building Marketplace
+   apps. Sign up at <https://developers.pipedrive.com/>, create a developer
+   sandbox, and you get a real API against a real (empty) CRM at no cost.
+   This is what you want before onboarding a customer. ⏳ Approval is
+   usually quick but is not instant.
+3. **Pay for one seat.** ~$15–25/month for the cheapest plan. Only worth it
+   once a customer is actually waiting.
 
-**Also decide your domain now** (e.g. `app.yourcompany.com`). Every OAuth
-redirect URI and webhook URL is derived from it, and changing it later means
-re-editing every console above.
+Option 1 today, option 2 in parallel. Don't pay for option 3 yet.
 
 ---
 
-## 2. 🤖 Generate your two secrets
+# Track A — prove it works (no accounts, ~30 min)
+
+## A1. 🧍 Get a Postgres database
+
+You need one connection string. Cheapest paths, either is fine:
+
+- **Neon** (<https://neon.tech>) — free tier, serverless, no card.
+- **Local** — `docker run -e POSTGRES_PASSWORD=pw -p 5432:5432 -d postgres:16`
+
+Copy the connection string.
+
+## A2. 🤖 Generate secrets and write `.env.local`
 
 ```bash
+npm install
 npm run gen:secrets
 ```
 
-Copy both lines somewhere safe **now**:
-
-- `AUTH_SECRET` — signs user sessions.
-- `TOKEN_ENCRYPTION_KEY` — encrypts every tenant's Pipedrive/Google/Claap/Zoom
-  credential at rest.
-
-> ⚠️ **Losing `TOKEN_ENCRYPTION_KEY` is unrecoverable.** Every stored
-> connection becomes undecryptable and all tenants must reconnect. Put it in
-> a password manager, and never share one key between staging and production.
-
----
-
-## 3. Database (~15 min)
-
-### 3a. 🧍 Create the Postgres instance
-
-In Neon/Supabase, create a project and copy the **connection string**. Use the
-*pooled* one if offered — the app is configured for it (`prepare: false`).
-
-Set it locally:
+Put this in `.env.local`:
 
 ```bash
-echo 'DATABASE_URL=postgres://...' >> .env
+DATABASE_URL=postgres://...            # from A1
+AUTH_SECRET=...                        # from gen:secrets
+TOKEN_ENCRYPTION_KEY=...               # from gen:secrets
+ANTHROPIC_API_KEY=sk-ant-...           # console.anthropic.com
+AUTH_URL=http://localhost:3000
+
+# Track A only — lets the local Claap stub serve transcripts.
+ALLOW_DEV_STUBS=1
+CLAAP_API_BASE=http://localhost:3000/api/dev/claap-stub
 ```
 
-### 3b. 🤖 Apply migrations
+`ANTHROPIC_API_KEY` is the only thing here that costs money. A seeded call
+is a few cents.
+
+## A3. 🤖 Create the schema
 
 ```bash
 npm run db:migrate
 ```
 
-Creates all tables and — in migration `0005` — switches on row level
-security with fail-closed tenant isolation policies.
-
-### 3c. 🧍 Create the RLS role
-
-RLS does **not** apply to a table's owner, so the app needs a second,
-non-owner role for request-path queries. The SQL is written for you:
+## A4. 🤖 Create a sandbox tenant
 
 ```bash
-psql "$DATABASE_URL" -v pw="'pick-a-strong-password'" \
-     -f scripts/sql/create-rls-role.sql
+npm run sandbox:connect -- --name "Acme Inc" --domain acme.com
 ```
 
-*(Neon/Supabase both have a SQL editor in the dashboard if you'd rather paste
-the file's contents than install psql.)*
+This creates the tenant, connects Pipedrive **in sandbox mode**, connects
+Claap so the webhook accepts posts, and wires all five signal→field
+mappings. It prints a tenant id and a webhook secret — keep both.
 
-Then add to `.env` — same host and database, different user:
+## A5. 🤖 Run the app and fire a call through it
+
+Two terminals:
 
 ```bash
-DATABASE_URL_RLS=postgres://app_rls:pick-a-strong-password@<same-host>/<same-db>
+npm run dev            # terminal 1
+npm run inngest:dev    # terminal 2 — the durable job runner
 ```
 
-### 3d. 🤖 Prove isolation actually works
+Then:
 
 ```bash
-npm run doctor
+npm run seed:call -- --tenant <TENANT_ID> --secret <SECRET> --offline --internal acme.com
 ```
 
-Look for these two lines specifically — they are the difference between real
-isolation and decorative policies:
+`--offline` encodes a sample transcript (with clear BANT signals and a
+competitor mention) into the recording id, which the local stub decodes
+back. Claap's real fetch-and-map code still runs; only the network hop is
+replaced.
 
-```
-✓ fail-closed — no tenant context ⇒ 0 rows visible
-✓ cross-tenant write blocked — WITH CHECK rejected a foreign tenant_id
+## A6. 🤖 Read what it would have written
+
+```bash
+npm run sandbox:report -- --tenant <TENANT_ID>
 ```
 
-If instead you see *"N rows visible with NO tenant context"*, your
-`DATABASE_URL_RLS` is still an owner role — redo 3c.
+You should see the extracted BANT signals with confidence scores, then the
+simulated Pipedrive writes — the rendered note body, the custom-field patch
+and the deal it attached to.
+
+**This is the moment of truth.** If the signals are right and the note
+reads well, the product works and everything after this is plumbing. If
+they're wrong, fix the prompt in `src/lib/ai/prompts/call-extraction.ts`
+and re-run A5 — that loop costs cents and needs no third party.
+
+> Signals below 0.8 confidence are held in `/review` rather than written.
+> That is the design, not a failure. `sandbox:report` will show an outbox
+> row that completed with "no signal cleared its confidence floor".
 
 ---
 
-## 4. Google Cloud (~40 min + ⏳ weeks)
+# Track B — point it at the real world
 
-### 4a. 🧍 Project, consent screen, OAuth client
+Start B1 **today** even though the rest can wait. It is the only step with
+a multi-week clock on it.
 
-1. Create a GCP project.
-2. **APIs & Services → Enable APIs**: enable **Gmail API**, **Google Calendar
-   API**, and **Cloud Pub/Sub API**.
-3. **OAuth consent screen** → External. Add scopes:
-   - `openid`, `email`
-   - `https://www.googleapis.com/auth/gmail.readonly`
-   - `https://www.googleapis.com/auth/calendar.readonly`
-4. Add every beta user's Google address under **Test users**.
-5. **Credentials → Create OAuth client ID → Web application.** Add **both**
-   redirect URIs (they are different flows — sign-in vs. data access):
+## B1. ⏳ Google verification — start now, finish in weeks
 
+Gmail and Calendar ingestion need `gmail.readonly`, which Google classes as
+a restricted scope. Until verification completes you are capped at **100
+test users** and refresh tokens **expire every 7 days** — meaning email
+ingestion breaks weekly. You cannot charge for the freshness guarantee
+until this clears.
+
+🧍 In <https://console.cloud.google.com>:
+
+1. New project. Enable **Gmail API**, **Google Calendar API**, **Pub/Sub**.
+2. **OAuth consent screen** → External. Fill in app name, support email,
+   logo, privacy policy URL, terms URL. These are required for submission,
+   so write them now rather than twice.
+3. **Credentials → OAuth client ID → Web application.** Redirect URI:
+   `https://<your-domain>/api/auth/callback/google`.
+4. Add scopes: `gmail.readonly`, `calendar.readonly`, plus `openid`,
+   `email`, `profile`.
+5. **Submit for verification.** Expect a demo video request and a
+   **CASA Tier 2** security assessment (a four-figure cost via an approved
+   vendor). This is the single longest lead time in the project.
+
+Into `.env.local` / Vercel: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`.
+
+## B2. 🧍 Pub/Sub for Gmail push
+
+1. Create topic `gmail-push`.
+2. Grant `gmail-api-push@system.gserviceaccount.com` the
+   **Pub/Sub Publisher** role on it.
+3. Create a **push subscription** to
+   `https://<your-domain>/api/webhooks/gmail`.
+4. Set `GOOGLE_PUBSUB_TOPIC=projects/<project>/topics/gmail-push`.
+
+## B3. 🧍 Real Pipedrive
+
+Once you have a developer sandbox (or a paid account):
+
+- **API token** (simplest): Pipedrive → Personal preferences → API. Paste
+  it on `/settings/sync`.
+- **OAuth** (needed for Marketplace distribution): create the app in the
+  Developer Hub, callback
+  `https://<your-domain>/api/oauth/pipedrive`, set
+  `PIPEDRIVE_CLIENT_ID` / `PIPEDRIVE_CLIENT_SECRET`.
+
+Then re-map fields on `/settings/fields` against your real deal fields —
+the sandbox keys from A4 are synthetic and will not match.
+
+## B4. 🧍 Deploy
+
+1. Import the repo on Vercel; set every env var from A2 plus B1–B3, with
+   `AUTH_URL` at your real domain.
+2. Add **Inngest** (Vercel integration or `INNGEST_SIGNING_KEY` +
+   `INNGEST_EVENT_KEY`), then sync the app so it discovers
+   `/api/inngest`.
+3. Run the RLS role setup against your production database:
+   ```bash
+   psql "$DATABASE_URL" -v pw="'<strong-password>'" -f scripts/sql/create-rls-role.sql
    ```
-   https://app.yourcompany.com/api/auth/callback/google
-   https://app.yourcompany.com/api/oauth/google
+   Set `DATABASE_URL_RLS` to that role. **Without this, RLS is inert** —
+   the owner role bypasses every policy.
+4. 🤖 Verify everything at once:
+   ```bash
+   npm run doctor
    ```
+   It checks env vars, migrations, that RLS actually *enforces* (connects as
+   `app_rls` and proves zero cross-tenant visibility), watch health, outbox
+   backlog, and that the deployment registered all 13 Inngest functions.
 
-   Copy the client ID and secret → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+## B5. 🧍 Cost rails
 
-### 4b. 🧍 Pub/Sub for Gmail push
-
-1. **Pub/Sub → Create topic**, e.g. `gmail-push`. Full name goes in
-   `GMAIL_PUBSUB_TOPIC` as `projects/<project-id>/topics/gmail-push`.
-2. On that topic → **Permissions → Add principal**:
-   - Principal: `gmail-api-push@system.gserviceaccount.com`
-   - Role: **Pub/Sub Publisher**
-
-   > Skipping this is the single most common setup failure. Without it
-   > `users.watch()` fails and every Google connect lands in the
-   > `warn=watches` state.
-3. **Create subscription** on the topic:
-   - Delivery type: **Push**
-   - Endpoint: `https://app.yourcompany.com/api/webhooks/google/gmail`
-   - **Enable authentication** → create/pick a service account →
-     that address goes in `PUBSUB_PUSH_SERVICE_ACCOUNT`
-   - **Audience**: paste the same endpoint URL → `PUBSUB_PUSH_AUDIENCE`
-
-   The webhook verifies the token's audience *and* that the caller is exactly
-   this service account, so both values must match what you entered.
-
-### 4c. ⏳ Submit for verification — do this on day one
-
-`gmail.readonly` is a **restricted** scope. Until your app is verified:
-
-- **100 test users maximum** (hard cap), and
-- **refresh tokens expire after 7 days** — meaning every beta user
-  re-authorizes Google weekly or their ingestion silently stops.
-
-Verification requires Google's OAuth review **plus a CASA Tier 2 security
-assessment**; it takes weeks to months and costs money. **Submit now, even
-though you aren't ready to launch** — it runs in the background.
-
-**Recommended in the meantime:** launch the beta on Claap/Zoom calls only
-(no verification, no cap, no expiry) and switch Google on per tenant as
-verification clears. If you do that, raise the staleness threshold for
-calls-only tenants so the sweep doesn't cry wolf:
-
-```sql
-UPDATE tenants SET staleness_days = 30 WHERE id = '<tenant-id>';
-```
+- Set a monthly spend limit on the Anthropic console.
+- Backfill is bounded to 14 days per connected user. Widening it multiplies
+  onboarding cost — leave it alone.
 
 ---
 
-## 5. 🧍 Pipedrive OAuth app (~15 min)
-
-In your Pipedrive developer sandbox, create a **Marketplace app**:
-
-- **Callback URL:** `https://app.yourcompany.com/api/oauth/pipedrive`
-- **Scopes:** deals (read+write), persons (read+write), organizations
-  (read+write), activities (write), and **deal fields (read)** — the settings
-  screen calls `GET /v1/dealFields` to build the mapping table.
-
-Copy → `PIPEDRIVE_CLIENT_ID`, `PIPEDRIVE_CLIENT_SECRET`.
-
-> Without these, no tenant can connect a CRM and nothing is ever written
-> anywhere. `npm run doctor` treats them as a hard failure for that reason.
-
----
-
-## 6. Deploy (~20 min)
-
-### 6a. 🧍 Vercel project + env
-
-Import the repo in Vercel, then add every variable under
-**Settings → Environment Variables** (Production *and* Preview):
-
-```
-DATABASE_URL                  DATABASE_URL_RLS
-ANTHROPIC_API_KEY             AUTH_SECRET
-TOKEN_ENCRYPTION_KEY          APP_URL
-GOOGLE_CLIENT_ID              GOOGLE_CLIENT_SECRET
-GMAIL_PUBSUB_TOPIC            PUBSUB_PUSH_SERVICE_ACCOUNT
-PUBSUB_PUSH_AUDIENCE          PIPEDRIVE_CLIENT_ID
-PIPEDRIVE_CLIENT_SECRET       INNGEST_EVENT_KEY
-INNGEST_SIGNING_KEY
-```
-
-`APP_URL` must be the real origin — every redirect URI and per-tenant webhook
-URL is built from it.
-
-### 6b. 🧍 Point your domain at the deployment
-
-Add `app.yourcompany.com` in Vercel → Domains and follow its DNS instructions.
-
-### 6c. 🧍 Connect Inngest
-
-In the Inngest dashboard, add your app with URL
-`https://app.yourcompany.com/api/inngest`, then hit **Sync**. Inngest's Vercel
-integration sets `INNGEST_EVENT_KEY` / `INNGEST_SIGNING_KEY` automatically.
-
-### 6d. 🤖 Verify the deployment
+## Daily commands
 
 ```bash
-APP_URL=https://app.yourcompany.com npm run doctor -- --prod
+npm run doctor                          # full health check
+npm run sandbox:connect -- --name X --domain x.com
+npm run seed:call -- --tenant <id> --secret <s> --offline
+npm run sandbox:report -- --tenant <id> # what would have hit the CRM
+npm run dev / npm run inngest:dev
+npm test && npm run lint && npm run typecheck
 ```
-
-You want:
-
-```
-✓ Inngest endpoint — 13 functions registered (expected 13)
-✓ Claap webhook — rejects unsigned POST with 404
-✓ Zoom webhook — rejects unsigned POST with 404
-✓ Gmail push webhook — rejects unsigned POST with 401
-```
-
-Then in the Inngest dashboard confirm three crons are scheduled:
-`renew-watches` (every 6h — the ingestion heartbeat), `staleness-dispatch`
-(nightly 03:00), `drain-outbox` (every 5 min).
-
-### 6e. 🧍 Fix CI (2 min)
-
-`.github/workflows/nextjs.yml` still needs replacing with the corrected
-version (it currently isn't valid YAML for Actions). Paste the file provided
-in chat via GitHub's web editor — a fine-grained PAT can't push workflow
-files without the `workflow` scope.
-
----
-
-## 7. 🧍 Cost + safety rails (~10 min)
-
-1. **Anthropic spend alert.** Console → Usage/Limits. Backfill is the spike:
-   roughly **$20–60 per user, one time** at the current 14-day window on
-   Opus, plus ongoing per-call cost.
-2. **Inngest failure notifications → Slack/email.** The single most important
-   alert is `renew-watches` failing: a lapsed Google watch stops ingestion
-   *silently*.
-3. **Leave field mappings empty.** A tenant with no mappings writes
-   **notes only** — append-only and safe. Don't pre-configure mappings for
-   beta users; let them read a week of notes first, then enable one field.
-   This is already the default; the instruction is to *not* change it.
-
----
-
-## 8. Dogfood on your own tenant (~45 min)
-
-Do the entire customer journey yourself, against a **Pipedrive sandbox**,
-before anyone else sees it.
-
-### 8a. 🧍 Sign in and connect
-
-1. Visit `https://app.yourcompany.com`, sign in with Google. This creates
-   your tenant and makes you owner.
-2. `/settings/sync` → **Connect Pipedrive** → approve.
-3. Confirm the field-mapping table lists *your* Pipedrive deal fields.
-   **Leave every row on "Don't sync".**
-
-### 8b. 🤖 Prove the pipeline end-to-end without waiting for a real call
-
-Connect Claap on `/settings/sync` (any API key; pick a webhook secret), then:
-
-```bash
-npm run seed:call -- \
-  --tenant <your-tenant-id> \
-  --secret <the-claap-webhook-secret-you-just-saved> \
-  --url https://app.yourcompany.com
-```
-
-Your tenant ID is the last path segment of the webhook URL shown on the Claap
-card. The script fires a correctly signed webhook carrying a sample
-transcript with known BANT signals (50k budget, CFO named Marcus, March QBR
-deadline, security-review objection, Gong as competitor) and prints the SQL
-to follow the row through every stage.
-
-Check the extraction matched what the transcript actually said — this is your
-first real read on quality.
-
-### 8c. 🧍 The real thing
-
-Record an actual short call with an external participant in Claap or Zoom,
-then confirm: `raw_events` → `interactions` → `extractions` → `sync_outbox`
-(completed) → `sync_log` → **a note on the right deal in Pipedrive**.
-
-> ⚠️ The Claap API response mapping in `src/lib/claap/client.ts` has never run
-> against a live workspace. If the transcript fetch fails here, that file's
-> field paths need adjusting — it's isolated to one file. This is the most
-> likely thing to break on first contact.
-
-### 8d. 🧍 Exercise the human loop
-
-- Find a low-confidence extraction in `/review`; check the evidence quotes are
-  verbatim; approve it and watch the field write flow through.
-- Hit **↻ Replay** on any item — a *new* extraction version should appear,
-  with the old one retained.
-- Now map **one** field (Timeline or Need), run another call, confirm it lands
-  in the right Pipedrive custom field with a `sync_log` row proving it.
-- Generate a team invite, accept it from a second Google account, confirm it
-  joins your tenant and the link can't be reused.
-
----
-
-## 9. 🧍 Onboard beta customer #1
-
-- Onboard **one** customer, **live on a call** — not by emailing a link.
-- Leave their field mappings empty for the first week. Notes only.
-- After a week, review the notes together. If they trust them, enable one
-  field. Expand from there.
-- Check their `/review` queue with them: large means the 0.8 confidence floor
-  needs tuning for their call style; empty *and* inaccurate means it's too low.
-- Only then onboard customers #2–5.
-
----
-
-## Daily driver commands
-
-| Command | What it does |
-|---|---|
-| `npm run doctor` | Full preflight: env, DB, migrations, RLS enforcement, watches, outbox |
-| `npm run doctor -- --prod` | Stricter — requires https and a real RLS role |
-| `npm run seed:call -- --tenant … --secret …` | Fire a synthetic signed call through the whole pipeline |
-| `npm run gen:secrets` | Generate `AUTH_SECRET` + `TOKEN_ENCRYPTION_KEY` |
-| `npm test` | 31 tests over the logic that decides what reaches a CRM |
-| `npm run lint` / `npm run typecheck` | Static checks |
-| `npm run db:migrate` | Apply migrations |
-| `npm run dev` + `npm run inngest:dev` | Local app + local Inngest |
 
 ## When something breaks
 
-| Symptom | Almost always |
+| Symptom | Look at |
 |---|---|
-| Gmail ingestion stopped silently | Watch expired — `renew-watches` failing or not scheduled (6d, 7.2) |
-| Google connect shows `warn=watches` | Pub/Sub publisher permission missing (4b step 2) |
-| Dashboard pages are empty | Query not wrapped in `withTenant()`, or `DATABASE_URL_RLS` misconfigured — run `npm run doctor` |
-| Notes appear, fields never update | Working as designed: no field mappings, or confidence below the floor |
-| Claap transcript fetch fails | `src/lib/claap/client.ts` field paths vs. your workspace's API version (8c) |
+| Webhook 401 | Secret mismatch — `--secret` vs the connection row |
+| Webhook 404 | No connection for that tenant/provider |
+| Nothing extracts | Is `npm run inngest:dev` running? |
+| Extraction lands in `/review` | Below the 0.8 floor — working as designed |
+| No simulated writes | `select * from sync_outbox` — check `last_error` |
+| Gmail silently stops | Watch expired; `renew-watches` cron. `npm run doctor` |
+| RLS check fails | `DATABASE_URL_RLS` unset, or role not created |
