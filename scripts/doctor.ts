@@ -276,7 +276,7 @@ async function checkDatabase(): Promise<void> {
         "Pipedrive OAuth vars",
         `missing ${pipedriveOauthMissing.join(", ")}`,
         hasCrm
-          ? "Existing connections keep working; only the self-serve OAuth connect button is unavailable (guide step B3)."
+          ? "Existing connections keep working; only the self-serve OAuth connect button is unavailable (guide step B3b)."
           : "No CRM can be connected and nothing gets written anywhere. Set these, paste an API token, or run `npm run sandbox:connect` (guide step A4).",
       );
     }

@@ -1,65 +1,64 @@
-import type { ClaapCredential, Participant } from "@/lib/db/schema";
+import type { ClaapCredential } from "@/lib/db/schema";
 
-export type ClaapTranscript = {
-  recordingId: string;
-  title: string | null;
-  occurredAt: string; // ISO
-  participants: Participant[];
-  /** Plain-text transcript, one utterance per line: "Speaker: text". */
-  text: string;
-};
+/**
+ * Claap transcript fetch, per the documented endpoint:
+ * https://docs.claap.io/api-reference/endpoint/get_recording_transcript
+ *
+ *   GET {base}/v1/recordings/{recordingId}/transcript
+ *   X-Claap-Key: <tenant's API key>
+ *   -> { result: { transcript: { segments: [{ speaker, text, ... }] } } }
+ *
+ * The response carries segments ONLY. Title, start time and participants
+ * come from the recording_added webhook payload (see ./webhook.ts), which
+ * the pipeline keeps verbatim in raw_events.
+ */
 
 /**
  * Overridable so a local stub can stand in for Claap (see
- * src/app/api/dev/claap-stub). Production leaves it unset and talks to the
- * real API; there is no other behavioural difference.
+ * src/app/api/dev/claap-stub). Production leaves it unset.
  */
-const BASE_URL = process.env.CLAAP_API_BASE ?? "https://api.claap.io/v1";
+const BASE_URL = process.env.CLAAP_API_BASE ?? "https://api.claap.io";
 
-/**
- * Fetch the transcript for a finished recording, authenticated with the
- * TENANT's Claap API key (decrypted from their connections row). Called
- * from a durable step, so a transient failure here is retried by Inngest.
- *
- * Response mapping follows Claap's public API; adjust the field paths if a
- * workspace is on a different API version.
- */
-export async function getTranscript(
+export type ClaapTranscriptResponse = {
+  result?: {
+    transcript?: {
+      segments?: { speaker?: string; text?: string }[];
+      languageCode?: string;
+    };
+  };
+};
+
+/** Plain-text transcript, one utterance per line: "Speaker: text". */
+export function transcriptText(body: ClaapTranscriptResponse): string {
+  const segments = body.result?.transcript?.segments;
+  if (!Array.isArray(segments)) {
+    // A shape change on Claap's side must fail loudly — an empty string
+    // here would extract "nothing discussed" and write that to the CRM.
+    throw new Error(
+      "Claap transcript response missing result.transcript.segments",
+    );
+  }
+  return segments
+    .filter((s) => (s.text ?? "").trim().length > 0)
+    .map((s) => `${s.speaker?.trim() || "Unknown"}: ${s.text!.trim()}`)
+    .join("\n");
+}
+
+export async function getTranscriptText(
   credential: ClaapCredential,
   recordingId: string,
-): Promise<ClaapTranscript> {
-  const res = await fetch(`${BASE_URL}/recordings/${recordingId}/transcript`, {
-    headers: { Authorization: `Bearer ${credential.apiKey}` },
-  });
+): Promise<string> {
+  const res = await fetch(
+    `${BASE_URL}/v1/recordings/${encodeURIComponent(recordingId)}/transcript`,
+    { headers: { "X-Claap-Key": credential.apiKey } },
+  );
   if (!res.ok) {
+    // Thrown inside a durable step: Inngest retries with backoff, which
+    // also covers a transcript that isn't quite ready when the webhook
+    // lands.
     throw new Error(
       `Claap transcript fetch failed for ${recordingId}: ${res.status} ${await res.text()}`,
     );
   }
-
-  const body = (await res.json()) as {
-    recording: {
-      id: string;
-      title?: string;
-      started_at: string;
-      participants?: { email?: string; name?: string; is_host?: boolean }[];
-    };
-    segments: { speaker: string; text: string }[];
-  };
-
-  return {
-    recordingId: body.recording.id,
-    title: body.recording.title ?? null,
-    occurredAt: body.recording.started_at,
-    participants: (body.recording.participants ?? [])
-      .filter((p): p is { email: string; name?: string; is_host?: boolean } =>
-        Boolean(p.email),
-      )
-      .map((p) => ({
-        email: p.email.toLowerCase(),
-        name: p.name,
-        isHost: p.is_host,
-      })),
-    text: body.segments.map((s) => `${s.speaker}: ${s.text}`).join("\n"),
-  };
+  return transcriptText((await res.json()) as ClaapTranscriptResponse);
 }

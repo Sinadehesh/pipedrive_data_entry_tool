@@ -211,8 +211,10 @@ fix before proceeding.
 Both are configured **per tenant** in-app (`/settings/sync`). Prepare a
 short customer-facing doc telling a beta user how to:
 
-- **Claap:** create an API key, choose a webhook signing secret, paste both
-  into the app, then register the app's per-tenant webhook URL in Claap.
+- **Claap:** create an API key, then create a webhook in Claap pointing at
+  the app's per-tenant URL for the **`recording_added`** event. Paste the
+  API key and that webhook's secret into the app (Claap sends the secret
+  on every delivery as `x-claap-webhook-secret`).
 - **Zoom:** create a Server-to-Server or Webhook-only app, copy its
   **Secret Token** into the app, set the app's per-tenant URL as the event
   endpoint, subscribe to **`recording.transcript_completed`**, and click
@@ -291,7 +293,7 @@ Do the whole customer journey yourself, on a **Pipedrive sandbox**.
 - [ ] **5.3** Open `/settings/sync` → the field-mapping table lists *your*
       Pipedrive deal fields. **Leave mappings empty** (notes-only, per 0.4).
 - [ ] **5.4 Call path.** Fastest first proof — fire a synthetic, correctly
-      signed Claap webhook and watch the pipeline run end to end:
+      Claap `recording_added` webhook and watch the pipeline run end to end:
 
 ```bash
 npm run seed:call -- --tenant <tenantId> --secret <your-claap-webhook-secret>
@@ -378,11 +380,17 @@ WHERE status = 'needs_review' GROUP BY 1;
 
 These are understood limitations, not surprises. Track them.
 
-1. **Claap payload mapping is unverified against a live workspace.**
-   `src/lib/claap/client.ts` follows the documented API shape but has never
-   run against real Claap data. Expect to adjust field paths on first
-   contact — it is isolated to that one file. **Verify this in 5.4 before
-   any customer sees it.**
+1. **Claap has been verified against its documentation, not a live
+   workspace.** The original integration was written against a guessed API
+   and would have rejected every real delivery (wrong auth header, wrong
+   event name, wrong payload and response shapes). It was rebuilt on
+   2026-10-01 against Claap's published webhook and transcript docs, with
+   contract tests in `src/lib/claap/webhook.test.ts`. It has still never
+   received a delivery from a real Claap workspace. The parsing lives in
+   `src/lib/claap/webhook.ts` and `client.ts`; if the first live delivery
+   disagrees with the docs, `raw_events` holds the verbatim payload to fix
+   it from. **Verify with one real recording in 5.4 before any customer
+   sees it.**
 2. **Zoom deal attachment is weak.** Zoom's recording webhook carries only
    the *host* email, not attendees, so a Zoom call attaches to a deal only
    if a participant is already in `identity_map`. Planned fix: pair the call

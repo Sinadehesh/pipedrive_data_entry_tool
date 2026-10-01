@@ -1,5 +1,5 @@
 /**
- * Fire a synthetic, correctly-signed Claap webhook at a running instance —
+ * Fire a synthetic Claap recording_added webhook at a running instance —
  * the fastest way to watch the whole data-entry pipeline actually run:
  *
  *   webhook -> raw_events -> interactions -> chunked LLM extraction
@@ -37,21 +37,11 @@
  *   npm run seed:call -- --tenant <id> --secret <secret> --offline
  *   npm run sandbox:report -- --tenant <id>
  */
-import { createHmac, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-const SAMPLE_TRANSCRIPT = `Rep: Thanks for making time. Where are you with the evaluation?
-Jane Doe: We're fairly far along. I'll be honest, we're also looking at Gong.
-Rep: Understood. What's driving the timeline?
-Jane Doe: Our QBR is the second week of March, and I want this in place before then.
-Rep: That's tight but doable. Who else needs to sign off?
-Jane Doe: I can approve up to fifty thousand. Above that it goes to our CFO, Marcus.
-Rep: Good news, you'd be well under that.
-Jane Doe: The main worry is our security review — last vendor took six weeks.
-Rep: We have a SOC 2 report I can send today, that usually shortens it.
-Jane Doe: If that's true, send it over and I'll start the review this week.
-Rep: Done. I'll also put together a rollout plan for your team of thirty reps.
-Jane Doe: Perfect. Honestly the reason we're leaning your way over Gong is the Pipedrive integration.`;
+import { SAMPLE_TRANSCRIPT } from "./fixtures/sample-call";
+
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -82,42 +72,47 @@ async function main(): Promise<void> {
     : SAMPLE_TRANSCRIPT;
 
   const offline = process.argv.includes("--offline");
+  const internal = arg("internal") ?? "example.com";
 
-  // Offline: the recording id IS the recording. The stub route decodes it,
-  // so extract-call's real Claap fetch + mapping code still runs.
+  // Offline: the recording id carries the transcript text, which the local
+  // stub decodes back — so extract-call's real Claap fetch + parse runs.
   const recordingId = offline
-    ? `offline-${Buffer.from(
-        JSON.stringify({
-          title: "Discovery call (seeded)",
-          occurredAt: new Date().toISOString(),
-          participants: [
-            { email, name: "Jane Doe" },
-            { email: `rep@${arg("internal") ?? "example.com"}`, name: "Rep", isHost: true },
-          ],
-          text: transcript,
-        }),
-        "utf8",
-      ).toString("base64url")}`
+    ? `offline-${Buffer.from(transcript, "utf8").toString("base64url")}`
     : `seed-${randomUUID()}`;
 
+  // Shaped like Claap's documented recording_added delivery
+  // (help.claap.io → "Claap Webhooks Documentation").
   const body = JSON.stringify({
-    id: `evt-${randomUUID()}`,
-    type: "recording.completed",
-    data: {
-      recording_id: recordingId,
-      // Included for reference; extract-call re-fetches from Claap's API.
-      _seed_participants: [email],
-      _seed_transcript_preview: transcript.slice(0, 120),
+    eventId: `evt-${randomUUID()}`,
+    event: {
+      type: "recording_added",
+      recording: {
+        id: recordingId,
+        title: "Discovery call (seeded)",
+        createdAt: new Date().toISOString(),
+        meeting: {
+          type: "external",
+          startingAt: new Date().toISOString(),
+          endingAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+          participants: [{ email, name: "Jane Doe" }],
+        },
+        recorder: {
+          id: "rep-1",
+          email: `rep@${internal}`,
+          name: "Rep",
+          attended: true,
+        },
+      },
     },
   });
 
-  const signature = createHmac("sha256", secret).update(body).digest("hex");
   const url = `${baseUrl}/api/webhooks/claap/${tenantId}`;
 
   console.log(`→ POST ${url}`);
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-claap-signature": signature },
+    // Claap authenticates with the static webhook secret in a header.
+    headers: { "content-type": "application/json", "x-claap-webhook-secret": secret },
     body,
   });
 
@@ -136,7 +131,7 @@ async function main(): Promise<void> {
     console.log("\nIf the extraction lands below 0.8 confidence it will be");
     console.log("waiting in /review instead — that is working as designed.");
   } else if (res.status === 401) {
-    console.error("✗ 401 — signature rejected. --secret must match the value");
+    console.error("✗ 401 — webhook secret rejected. --secret must match the value");
     console.error("  saved on /settings/sync for this tenant.");
     process.exit(1);
   } else if (res.status === 404) {

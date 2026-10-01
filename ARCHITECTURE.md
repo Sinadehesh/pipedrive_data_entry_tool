@@ -138,7 +138,7 @@ crm-intelligence/
 │   │   │   ├── auth/[...nextauth]/route.ts   # Auth.js (Google OAuth, offline access)
 │   │   │   ├── inngest/route.ts              # serve() — all Inngest functions
 │   │   │   └── webhooks/
-│   │   │       ├── claap/route.ts            # verify sig → persist raw → enqueue
+│   │   │       ├── claap/route.ts            # verify secret → persist raw → enqueue
 │   │   │       ├── google/
 │   │   │       │   ├── gmail/route.ts        # Pub/Sub push endpoint
 │   │   │       │   └── calendar/route.ts     # Calendar channel endpoint
@@ -222,11 +222,13 @@ Every webhook route does only:
 // /api/webhooks/claap/route.ts — the entire pattern
 export async function POST(req: Request) {
   const raw = await req.text();
-  if (!verifySignature(raw, req.headers)) return new Response(null, { status: 401 });
+  // Each provider authenticates differently: Claap sends a static secret
+  // header, Zoom an HMAC over timestamp+body, Pub/Sub a signed OIDC JWT.
+  if (!verify(req.headers, raw)) return new Response(null, { status: 401 });
 
-  const event = parse(raw);
-  await db.insert(rawEvents).values({ source: "claap", externalId: event.id, payload: event });
-  await inngest.send({ name: "claap/recording.completed", data: { recordingId: event.id } });
+  const event = parseRecordingAdded(JSON.parse(raw)); // null ⇒ ack and ignore
+  await db.insert(rawEvents).values({ source: "claap", externalId: event.eventId, payload: raw });
+  await inngest.send({ name: "claap/recording.completed", data: { recordingId: event.recordingId } });
 
   return new Response(null, { status: 200 }); // < 1s, always
 }

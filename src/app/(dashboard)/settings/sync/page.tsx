@@ -103,9 +103,9 @@ export default async function SyncSettingsPage({
               { name: "apiKey", label: "API key", type: "password" },
               {
                 name: "webhookSecret",
-                label: "Webhook signing secret",
+                label: "Webhook secret",
                 type: "password",
-                hint: "Any strong secret — register the same value on the Claap webhook.",
+                hint: "The secret of the webhook you create in Claap for the URL above. Claap sends it on every delivery (x-claap-webhook-secret); deliveries without it are rejected.",
               },
             ]}
           />

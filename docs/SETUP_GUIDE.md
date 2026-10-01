@@ -42,6 +42,37 @@ Option 1 today, option 2 in parallel. Don't pay for option 3 yet.
 
 # Track A — prove it works (no accounts, ~30 min)
 
+## A0. 🤖 Does the AI part work? (2 minutes — do this first)
+
+The extraction is the product. Everything else is plumbing around it. This
+runs the real prompt on a sample call with known answers and scores it —
+no database, no servers, nothing but an API key:
+
+```bash
+npm install
+ANTHROPIC_API_KEY=sk-ant-... npm run try:extract
+```
+
+You get the summary, BANT with confidence and evidence, competitors,
+objections, next steps, and a scorecard. Two kinds of checks:
+
+- **Every evidence quote must appear verbatim in the transcript.** A quote
+  that doesn't is a hallucination that would otherwise land in a
+  customer's CRM as "evidence". This check works on any transcript.
+- **Ground truth for the built-in sample** — budget, authority, timeline,
+  the Gong competitor, the security objection, the SOC 2 next step.
+
+Then run it on real calls you have access to (export the transcript as
+`Speaker: text` lines):
+
+```bash
+npm run try:extract -- --transcript my-call.txt
+```
+
+**If the scorecard fails or the output reads wrong, stop here and fix the
+prompt** in `src/lib/ai/prompts/call-extraction.ts`. Nothing downstream
+can compensate for a wrong extraction. A run costs a few cents.
+
 ## A1. 🧍 Get a Postgres database
 
 You need one connection string. Cheapest paths, either is fine:
@@ -170,7 +201,20 @@ Into `.env.local` / Vercel: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`.
    `https://<your-domain>/api/webhooks/gmail`.
 4. Set `GOOGLE_PUBSUB_TOPIC=projects/<project>/topics/gmail-push`.
 
-## B3. 🧍 Real Pipedrive
+## B3a. 🧍 Real Claap (your call source)
+
+1. Claap → API settings: create an **API key**.
+2. Claap → Webhooks: create a webhook for **`recording_added`** pointing at
+   the URL shown on `/settings/sync` (`https://<your-domain>/api/webhooks/claap/<tenant-id>`).
+3. Paste the API key and **that webhook's secret** into `/settings/sync`.
+4. Record a short real call. Within a few minutes `raw_events` should hold
+   the delivery and `/review` or Pipedrive should show the result.
+
+The integration is built and tested against Claap's published docs but has
+never received a real delivery. If step 4 doesn't produce an interaction,
+the verbatim payload is in `raw_events` — that is what to fix it from.
+
+## B3b. 🧍 Real Pipedrive
 
 Once you have a developer sandbox (or a paid account):
 
@@ -216,6 +260,7 @@ the sandbox keys from A4 are synthetic and will not match.
 ## Daily commands
 
 ```bash
+npm run try:extract                     # does the AI work? (key only)
 npm run doctor                          # full health check
 npm run sandbox:connect -- --name X --domain x.com
 npm run seed:call -- --tenant <id> --secret <s> --offline
@@ -228,7 +273,7 @@ npm test && npm run lint && npm run typecheck
 
 | Symptom | Look at |
 |---|---|
-| Webhook 401 | Secret mismatch — `--secret` vs the connection row |
+| Webhook 401 | `x-claap-webhook-secret` doesn't match the secret saved on `/settings/sync` |
 | Webhook 404 | No connection for that tenant/provider |
 | Nothing extracts | Is `npm run inngest:dev` running? |
 | Extraction lands in `/review` | Below the 0.8 floor — working as designed |

@@ -6,10 +6,14 @@ import {
   extractChunk,
   mergeExtractions,
 } from "@/lib/ai/extractor";
-import { getTranscript } from "@/lib/claap/client";
+import { getTranscriptText } from "@/lib/claap/client";
+import {
+  parseRecordingAdded,
+  type ClaapWebhookPayload,
+} from "@/lib/claap/webhook";
 import { requireConnection } from "@/lib/connections";
 import { db } from "@/lib/db/client";
-import { extractions, interactions } from "@/lib/db/schema";
+import { extractions, interactions, rawEvents } from "@/lib/db/schema";
 import { inngest } from "@/inngest/client";
 import { persistAndEnqueue } from "./persist";
 
@@ -64,12 +68,43 @@ export const extractCall = inngest.createFunction(
   async ({ event, step }) => {
     const { tenantId } = event.data;
 
-    // ~2s: pull the transcript with the tenant's own Claap key. The key is
-    // decrypted inside the step and never leaves it — only the transcript
-    // (non-secret) is memoized.
+    // ~2s: assemble the call. Metadata (title, start, participants) comes
+    // from the verbatim recording_added payload in raw_events — Claap's
+    // transcript endpoint returns segments only. The text is pulled with
+    // the tenant's own Claap key, decrypted inside the step and never
+    // returned from it; only the transcript (non-secret) is memoized.
     const transcript = await step.run("fetch-transcript", async () => {
+      const [raw] = await db
+        .select({ payload: rawEvents.payload })
+        .from(rawEvents)
+        .where(
+          and(
+            eq(rawEvents.tenantId, tenantId),
+            eq(rawEvents.id, event.data.rawEventId),
+          ),
+        )
+        .limit(1);
+      const meta = raw
+        ? parseRecordingAdded(raw.payload as ClaapWebhookPayload)
+        : null;
+      if (!meta) {
+        throw new Error(
+          `raw event ${event.data.rawEventId} is not a usable recording_added payload`,
+        );
+      }
+
       const claap = await requireConnection(tenantId, "claap");
-      return getTranscript(claap.credential, event.data.recordingId);
+      const text = await getTranscriptText(
+        claap.credential,
+        event.data.recordingId,
+      );
+      return {
+        recordingId: meta.recordingId,
+        title: meta.title,
+        occurredAt: meta.occurredAt,
+        participants: meta.participants,
+        text,
+      };
     });
 
     // Idempotent ledger write: unique (tenant, source, external_id) means a
