@@ -9,6 +9,7 @@
  * It never writes anything. Every failure prints the exact fix.
  * Exit code 0 = ready, 1 = something needs attention.
  */
+import "./load-env";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 import postgres from "postgres";
@@ -59,7 +60,6 @@ function checkEnv(): void {
 
   const required = [
     ["DATABASE_URL", "Postgres owner connection string"],
-    ["ANTHROPIC_API_KEY", "Anthropic API key for extraction"],
     ["AUTH_SECRET", "Auth.js session signing secret"],
     ["TOKEN_ENCRYPTION_KEY", "AES-256-GCM key for tenant credentials"],
     ["APP_URL", "Public origin, e.g. https://app.example.com"],
@@ -71,6 +71,28 @@ function checkEnv(): void {
     } else {
       record("ok", name, "set");
     }
+  }
+
+  // The extraction LLM: whichever provider LLM_PROVIDER selects must have
+  // its key. (Mirrors src/lib/ai/model.ts — kept dependency-free here.)
+  const llm = (process.env.LLM_PROVIDER ?? "anthropic").trim().toLowerCase();
+  const llmKeys: Record<string, string> = {
+    anthropic: "ANTHROPIC_API_KEY",
+    kimi: "MOONSHOT_API_KEY",
+    moonshot: "MOONSHOT_API_KEY",
+    deepseek: "DEEPSEEK_API_KEY",
+  };
+  const llmKey = llmKeys[llm];
+  if (!llmKey) {
+    record("fail", "LLM_PROVIDER", `"${llm}" is not supported`, "Use anthropic, kimi or deepseek.");
+  } else if (!process.env[llmKey]) {
+    record("fail", llmKey, `missing — LLM_PROVIDER=${llm} needs it for extraction`);
+  } else {
+    record(
+      "ok",
+      "extraction LLM",
+      `${llm} · ${process.env.LLM_MODEL || "default model"}`,
+    );
   }
 
   // DATABASE_URL_RLS: optional in dev, mandatory in prod or RLS is inert.

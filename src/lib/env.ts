@@ -15,7 +15,14 @@ const envSchema = z.object({
    */
   DATABASE_URL_RLS: z.string().optional().default(""),
 
-  ANTHROPIC_API_KEY: z.string().min(1),
+  // LLM for extraction — which key is required depends on LLM_PROVIDER
+  // (anthropic | kimi | deepseek); src/lib/ai/model.ts enforces it.
+  LLM_PROVIDER: z.string().optional().default("anthropic"),
+  LLM_MODEL: z.string().optional().default(""),
+  ANTHROPIC_API_KEY: z.string().optional().default(""),
+  MOONSHOT_API_KEY: z.string().optional().default(""),
+  MOONSHOT_BASE_URL: z.string().optional().default(""),
+  DEEPSEEK_API_KEY: z.string().optional().default(""),
 
   // OUR Google OAuth app (one app serves every tenant's mailboxes).
   GOOGLE_CLIENT_ID: z.string().optional().default(""),

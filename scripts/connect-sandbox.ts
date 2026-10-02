@@ -14,6 +14,7 @@
  *
  * Prints the tenant id and Claap webhook secret you need for seed:call.
  */
+import "./load-env";
 import { randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";

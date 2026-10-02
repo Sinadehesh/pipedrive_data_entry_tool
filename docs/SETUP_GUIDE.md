@@ -46,12 +46,33 @@ Option 1 today, option 2 in parallel. Don't pay for option 3 yet.
 
 The extraction is the product. Everything else is plumbing around it. This
 runs the real prompt on a sample call with known answers and scores it —
-no database, no servers, nothing but an API key:
+no database, no servers, no `.env.local`, nothing but one API key.
+
+Pick a provider (switch any time; see `src/lib/ai/model.ts`):
+
+| `LLM_PROVIDER` | Key variable | Default model | How it returns our schema |
+|---|---|---|---|
+| `anthropic` (default) | `ANTHROPIC_API_KEY` | `claude-opus-4-8` | native structured output |
+| `kimi` | `MOONSHOT_API_KEY` | `kimi-k3` | **enforced** JSON Schema (`strict`) |
+| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | JSON mode; schema is only an instruction |
 
 ```bash
 npm install
+
+# Kimi (macOS / Linux)
+LLM_PROVIDER=kimi MOONSHOT_API_KEY=sk-... npm run try:extract
+
+# DeepSeek
+LLM_PROVIDER=deepseek DEEPSEEK_API_KEY=sk-... npm run try:extract
+
+# Anthropic
 ANTHROPIC_API_KEY=sk-ant-... npm run try:extract
 ```
+
+Windows PowerShell: `$env:LLM_PROVIDER="kimi"; $env:MOONSHOT_API_KEY="sk-..."; npm run try:extract`
+
+Override the model with `LLM_MODEL=...` (e.g. `kimi-k2.7-code`,
+`deepseek-flash`).
 
 You get the summary, BANT with confidence and evidence, competitors,
 objections, next steps, and a scorecard. Two kinds of checks:
@@ -66,12 +87,22 @@ Then run it on real calls you have access to (export the transcript as
 `Speaker: text` lines):
 
 ```bash
-npm run try:extract -- --transcript my-call.txt
+LLM_PROVIDER=kimi MOONSHOT_API_KEY=sk-... npm run try:extract -- --transcript my-call.txt
 ```
+
+**Comparing providers:** run the same 3–5 transcripts through each and
+keep the one whose answers match what was actually said. The prompt was
+written and tuned against Claude; other models may calibrate confidence
+differently, which shifts how often the 0.8 auto-write floor is cleared.
+
+**Data note:** transcripts are sent to whichever provider you pick.
+Moonshot (Kimi) and DeepSeek are China-based; customers' security reviews
+will ask about this as a subprocessor. Fine for testing on your own calls —
+decide deliberately before sending customer data.
 
 **If the scorecard fails or the output reads wrong, stop here and fix the
 prompt** in `src/lib/ai/prompts/call-extraction.ts`. Nothing downstream
-can compensate for a wrong extraction. A run costs a few cents.
+can compensate for a wrong extraction. A run costs cents or less.
 
 ## A1. 🧍 Get a Postgres database
 
@@ -82,29 +113,35 @@ You need one connection string. Cheapest paths, either is fine:
 
 Copy the connection string.
 
-## A2. 🤖 Generate secrets and write `.env.local`
+## A2. 🤖 Create `.env.local`
+
+`.env.local` holds your secrets, so it is not in the repository — you
+create it once from the template:
 
 ```bash
-npm install
-npm run gen:secrets
+cp .env.example .env.local
+npm run gen:secrets          # prints AUTH_SECRET and TOKEN_ENCRYPTION_KEY
 ```
 
-Put this in `.env.local`:
+Open `.env.local` and fill in:
 
 ```bash
 DATABASE_URL=postgres://...            # from A1
+DATABASE_URL_RLS=                      # leave EMPTY for local dev (see B4)
 AUTH_SECRET=...                        # from gen:secrets
 TOKEN_ENCRYPTION_KEY=...               # from gen:secrets
-ANTHROPIC_API_KEY=sk-ant-...           # console.anthropic.com
-AUTH_URL=http://localhost:3000
+APP_URL=http://localhost:3000
+
+LLM_PROVIDER=kimi                      # or anthropic | deepseek
+MOONSHOT_API_KEY=sk-...                # the key for the provider above
 
 # Track A only — lets the local Claap stub serve transcripts.
 ALLOW_DEV_STUBS=1
 CLAAP_API_BASE=http://localhost:3000/api/dev/claap-stub
 ```
 
-`ANTHROPIC_API_KEY` is the only thing here that costs money. A seeded call
-is a few cents.
+Every `npm run` script and `npm run dev` read `.env.local` automatically —
+no `source` step needed. A value set in the shell overrides the file.
 
 ## A3. 🤖 Create the schema
 
@@ -190,7 +227,7 @@ until this clears.
    **CASA Tier 2** security assessment (a four-figure cost via an approved
    vendor). This is the single longest lead time in the project.
 
-Into `.env.local` / Vercel: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`.
+Into `.env.local` / Vercel: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
 
 ## B2. 🧍 Pub/Sub for Gmail push
 
@@ -199,7 +236,14 @@ Into `.env.local` / Vercel: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`.
    **Pub/Sub Publisher** role on it.
 3. Create a **push subscription** to
    `https://<your-domain>/api/webhooks/gmail`.
-4. Set `GOOGLE_PUBSUB_TOPIC=projects/<project>/topics/gmail-push`.
+4. Set all three:
+   ```bash
+   GMAIL_PUBSUB_TOPIC=projects/<project>/topics/gmail-push
+   PUBSUB_PUSH_SERVICE_ACCOUNT=<the service account the push subscription authenticates as>
+   PUBSUB_PUSH_AUDIENCE=https://<your-domain>/api/webhooks/google/gmail
+   ```
+   The last two must match the push subscription's authentication
+   settings — the webhook rejects tokens for any other account or audience.
 
 ## B3a. 🧍 Real Claap (your call source)
 
@@ -225,13 +269,13 @@ Once you have a developer sandbox (or a paid account):
   `https://<your-domain>/api/oauth/pipedrive`, set
   `PIPEDRIVE_CLIENT_ID` / `PIPEDRIVE_CLIENT_SECRET`.
 
-Then re-map fields on `/settings/fields` against your real deal fields —
+Then re-map fields on `/settings/sync` against your real deal fields —
 the sandbox keys from A4 are synthetic and will not match.
 
 ## B4. 🧍 Deploy
 
 1. Import the repo on Vercel; set every env var from A2 plus B1–B3, with
-   `AUTH_URL` at your real domain.
+   `APP_URL` at your real domain.
 2. Add **Inngest** (Vercel integration or `INNGEST_SIGNING_KEY` +
    `INNGEST_EVENT_KEY`), then sync the app so it discovers
    `/api/inngest`.
@@ -260,7 +304,7 @@ the sandbox keys from A4 are synthetic and will not match.
 ## Daily commands
 
 ```bash
-npm run try:extract                     # does the AI work? (key only)
+npm run try:extract                     # does the AI work? (one key only)
 npm run doctor                          # full health check
 npm run sandbox:connect -- --name X --domain x.com
 npm run seed:call -- --tenant <id> --secret <s> --offline

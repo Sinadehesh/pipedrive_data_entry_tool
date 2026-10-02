@@ -37,6 +37,7 @@
  *   npm run seed:call -- --tenant <id> --secret <secret> --offline
  *   npm run sandbox:report -- --tenant <id>
  */
+import "./load-env";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 

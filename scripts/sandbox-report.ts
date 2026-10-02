@@ -10,6 +10,7 @@
  * Usage:
  *   npm run sandbox:report -- --tenant <uuid> [--limit 20]
  */
+import "./load-env";
 import { desc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";

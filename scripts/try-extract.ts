@@ -1,12 +1,14 @@
 /**
  * Run the REAL call-extraction prompt on a transcript and score the result.
  *
- * Needs only ANTHROPIC_API_KEY — no database, no Inngest, no CRM. This is
- * the fastest answer to "does the AI part actually work?", and the loop to
- * use when tuning src/lib/ai/prompts/call-extraction.ts.
+ * Needs only an LLM API key — no database, no Inngest, no CRM. This is
+ * the fastest answer to "does the AI part actually work?", the loop to use
+ * when tuning src/lib/ai/prompts/call-extraction.ts, and the way to compare
+ * providers on YOUR calls (see src/lib/ai/model.ts):
  *
  *   ANTHROPIC_API_KEY=sk-ant-... npm run try:extract
- *   ANTHROPIC_API_KEY=sk-ant-... npm run try:extract -- --transcript call.txt
+ *   LLM_PROVIDER=kimi MOONSHOT_API_KEY=sk-... npm run try:extract
+ *   LLM_PROVIDER=deepseek DEEPSEEK_API_KEY=sk-... npm run try:extract -- --transcript call.txt
  *
  * Transcript format: one utterance per line, "Speaker: text".
  *
@@ -19,6 +21,7 @@
  *
  * Exit code 0 = every check passed.
  */
+import "./load-env";
 import { readFileSync } from "node:fs";
 
 import { chunkTranscript } from "@/lib/ai/chunking";
@@ -27,6 +30,7 @@ import {
   extractChunk,
   mergeExtractions,
 } from "@/lib/ai/extractor";
+import { llmKeyVar, llmProvider } from "@/lib/ai/model";
 import {
   AUTO_WRITE_CONFIDENCE_FLOOR,
   overallConfidence,
@@ -64,9 +68,11 @@ function transcriptBody(t: string): string {
 type Check = { label: string; pass: boolean; detail?: string };
 
 async function main(): Promise<void> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const key = llmKeyVar();
+  if (!process.env[key.name]) {
     console.error(
-      "Set ANTHROPIC_API_KEY (console.anthropic.com → API keys). It is the only thing this needs.",
+      `LLM_PROVIDER=${llmProvider()} needs ${key.name} (${key.where}). It is the only thing this needs.\n` +
+        "Switch provider with LLM_PROVIDER=anthropic | kimi | deepseek.",
     );
     process.exit(1);
   }
@@ -77,7 +83,7 @@ async function main(): Promise<void> {
   const chunks = chunkTranscript(transcript);
 
   console.log(
-    `Model ${EXTRACTION_MODEL_ID} · ${transcript.length} chars · ${chunks.length} chunk(s)\n`,
+    `${llmProvider()} · ${EXTRACTION_MODEL_ID} · ${transcript.length} chars · ${chunks.length} chunk(s)\n`,
   );
   const started = Date.now();
   const partials: CallExtraction[] = [];

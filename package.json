@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
+    "@ai-sdk/deepseek": "^1.0.62",
+    "@ai-sdk/openai-compatible": "^1.0.58",
     "@auth/drizzle-adapter": "^1.7.0",
     "ai": "^5.0.0",
     "drizzle-orm": "^0.44.0",

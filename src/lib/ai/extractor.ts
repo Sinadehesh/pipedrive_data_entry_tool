@@ -1,4 +1,3 @@
-import { anthropic } from "@ai-sdk/anthropic";
 import { generateObject } from "ai";
 
 import {
@@ -14,11 +13,14 @@ import {
   MEETING_EXTRACTION_SYSTEM,
   meetingPrompt,
 } from "./prompts/meeting-extraction";
+import { extractionModel, llmModelId } from "./model";
 import { CallExtractionSchema, type CallExtraction } from "./schemas";
 
-export const EXTRACTION_MODEL_ID = "claude-opus-4-8";
-
-const model = anthropic(EXTRACTION_MODEL_ID);
+/**
+ * The model id recorded on each extraction row. Provider and model are
+ * chosen by env (LLM_PROVIDER / LLM_MODEL) — see ./model.ts.
+ */
+export const EXTRACTION_MODEL_ID = llmModelId();
 
 /**
  * Map step: extract from one transcript chunk. Called once per chunk inside
@@ -31,7 +33,7 @@ export async function extractChunk(
   meta: { title: string | null; chunkIndex: number; chunkCount: number },
 ): Promise<CallExtraction> {
   const { object } = await generateObject({
-    model,
+    model: extractionModel(),
     schema: CallExtractionSchema,
     system: CALL_EXTRACTION_SYSTEM,
     prompt: chunkPrompt(chunk, meta),
@@ -53,7 +55,7 @@ export async function extractEmailThread(
   }[],
 ): Promise<CallExtraction> {
   const { object } = await generateObject({
-    model,
+    model: extractionModel(),
     schema: CallExtractionSchema,
     system: EMAIL_EXTRACTION_SYSTEM,
     prompt: threadPrompt(messages),
@@ -69,7 +71,7 @@ export async function extractMeeting(input: {
   attendees: { email: string; name?: string }[];
 }): Promise<CallExtraction> {
   const { object } = await generateObject({
-    model,
+    model: extractionModel(),
     schema: CallExtractionSchema,
     system: MEETING_EXTRACTION_SYSTEM,
     prompt: meetingPrompt(input),
@@ -88,7 +90,7 @@ export async function mergeExtractions(
   if (partials.length === 1) return partials[0];
 
   const { object } = await generateObject({
-    model,
+    model: extractionModel(),
     schema: CallExtractionSchema,
     system: CALL_EXTRACTION_SYSTEM,
     prompt: mergePrompt(partials, meta),
