@@ -38,6 +38,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO app_rls;
 
--- 6. Belt and braces: make sure this role can never be mistaken for a
---    superuser and quietly bypass RLS.
-ALTER ROLE app_rls NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+-- 6. Verify the role cannot bypass RLS. A role created by CREATE ROLE is
+--    already NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS by default, so
+--    there is nothing to ALTER — and on managed Postgres (Neon, Supabase)
+--    the database owner isn't allowed to ALTER ROLE at all, which used to
+--    abort this whole script. Check instead; every column must be false.
+SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb
+FROM pg_roles WHERE rolname = 'app_rls';
