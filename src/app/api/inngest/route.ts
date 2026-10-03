@@ -16,6 +16,7 @@ import { backfillConnection } from "@/inngest/functions/ingest/backfill";
 import { calendarDelta } from "@/inngest/functions/ingest/calendar-delta";
 import { gmailHistory } from "@/inngest/functions/ingest/gmail-history";
 import { reconcilePipedrive } from "@/inngest/functions/sync/reconcile-pipedrive";
+import { inngestSigningKey, inngestSigningKeyFallback } from "@/inngest/keys";
 
 // Generous headroom on Vercel Fluid compute — but no single step is designed
 // to need more than ~60s. Durability comes from Inngest's checkpointing, not
@@ -24,6 +25,9 @@ export const maxDuration = 300;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
+  // Accepts a prefixed name from the Vercel integration — see keys.ts.
+  signingKey: inngestSigningKey(),
+  signingKeyFallback: inngestSigningKeyFallback(),
   functions: [
     extractCall,
     extractZoomCall,
