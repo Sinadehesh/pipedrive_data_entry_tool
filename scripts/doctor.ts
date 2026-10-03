@@ -441,7 +441,8 @@ async function checkDeployment(): Promise<void> {
   if (!base) return;
   console.log("\n── Deployed app ──");
 
-  // Inngest's serve endpoint answers GET with function metadata.
+  // In dev mode Inngest's serve endpoint answers GET with function metadata;
+  // in production it demands Inngest's signature (see the 401 branch).
   try {
     const res = await fetch(`${base}/api/inngest`, { method: "GET" });
     if (res.ok) {
@@ -458,6 +459,29 @@ async function checkDeployment(): Promise<void> {
         n != null && n !== EXPECTED_INNGEST_FUNCTIONS
           ? "Re-sync the app in the Inngest dashboard."
           : undefined,
+      );
+    } else if (res.status === 401) {
+      // Expected in production: Inngest's cloud mode rejects EVERY unsigned
+      // request, including this probe, even when keys are correct. Only
+      // Inngest can sign requests, so registration can't be verified from
+      // here — the dashboard is the source of truth.
+      record(
+        "ok",
+        "Inngest endpoint",
+        "reachable, requires Inngest's signature (normal in production)",
+      );
+      record(
+        "warn",
+        "Inngest function registration",
+        "cannot be checked from outside Inngest",
+        `Inngest dashboard → Production → Apps should list this app with ${EXPECTED_INNGEST_FUNCTIONS} functions.`,
+      );
+    } else if (res.status === 302 || res.status === 307) {
+      record(
+        "fail",
+        "Inngest endpoint",
+        `HTTP ${res.status} — redirected, likely Vercel Deployment Protection`,
+        "Point APP_URL at the production domain, and set the same domain as 'Custom Production Domain' in Inngest's Vercel integration.",
       );
     } else {
       record("warn", "Inngest endpoint", `HTTP ${res.status}`);
