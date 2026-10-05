@@ -13,6 +13,7 @@ import {
   GmailHistoryExpiredError,
   listHistory,
 } from "@/lib/google/gmail";
+import { rethrowGoogleRateLimit } from "@/lib/google/rate-limit";
 import { shouldIngest } from "@/lib/ingest/relevance";
 import { inngest } from "@/inngest/client";
 
@@ -45,7 +46,8 @@ const FETCH_BATCH_SIZE = 20;
 export const gmailHistory = inngest.createFunction(
   {
     id: "gmail-history-sync",
-    retries: 3,
+    // Rate-limited steps wait ~1 minute per retry (rate-limit.ts).
+    retries: 6,
     debounce: { key: "event.data.emailAddress", period: "15s" },
     concurrency: { key: "event.data.emailAddress", limit: 1 },
   },
@@ -137,7 +139,9 @@ export const gmailHistory = inngest.createFunction(
         let count = 0;
         const threadIds: string[] = [];
         for (const messageId of batch) {
-          const message = await getMessage(ctx.connection, messageId);
+          const message = await getMessage(ctx.connection, messageId).catch(
+            rethrowGoogleRateLimit,
+          );
           if (!message || !shouldIngest(message, internalDomainSet)) continue;
 
           const inserted = await db

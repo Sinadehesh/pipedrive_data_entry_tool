@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { connections, interactions, tenants } from "@/lib/db/schema";
 import { listEventsDelta } from "@/lib/google/calendar";
 import { boundedResync, getMessage } from "@/lib/google/gmail";
+import { rethrowGoogleRateLimit } from "@/lib/google/rate-limit";
 import { shouldIngest } from "@/lib/ingest/relevance";
 import { inngest } from "@/inngest/client";
 
@@ -35,7 +36,9 @@ const FETCH_BATCH_SIZE = 20;
 export const backfillConnection = inngest.createFunction(
   {
     id: "backfill-connection",
-    retries: 2,
+    // Generous: Gmail per-minute quotas make a 2,000-message import hit
+    // rate limits, and each such retry waits out the window (rate-limit.ts).
+    retries: 8,
     // One backfill per connection at a time; re-requests are harmless
     // (dedupe) but shouldn't run concurrently.
     concurrency: { key: "event.data.connectionId", limit: 1 },
@@ -92,7 +95,9 @@ export const backfillConnection = inngest.createFunction(
         let count = 0;
         const threadIds: string[] = [];
         for (const messageId of batch) {
-          const message = await getMessage(ctx.connection, messageId);
+          const message = await getMessage(ctx.connection, messageId).catch(
+            rethrowGoogleRateLimit,
+          );
           if (!message || !shouldIngest(message, internalDomainSet)) continue;
           const inserted = await db
             .insert(interactions)
@@ -117,7 +122,21 @@ export const backfillConnection = inngest.createFunction(
         return { count, threadIds };
       });
       emailsIngested += result.count;
+      // Hand each batch's threads to extraction NOW rather than after the
+      // whole import: a long import that later fails must not strand the
+      // mail it already ingested. Re-notifying a thread is harmless — the
+      // extractor debounces per thread.
+      const fresh = result.threadIds.filter((t) => !changedThreads.has(t));
       for (const t of result.threadIds) changedThreads.add(t);
+      if (fresh.length > 0) {
+        await step.sendEvent(
+          `notify-threads-${i}`,
+          fresh.map((threadId) => ({
+            name: "gmail/thread.changed" as const,
+            data: { tenantId, threadId },
+          })),
+        );
+      }
     }
 
     // ---- Calendar: bounded initial window, upserts only ----
@@ -152,16 +171,8 @@ export const backfillConnection = inngest.createFunction(
       return ids;
     });
 
-    // ---- Hand everything to the normal extraction pipeline ----
-    if (changedThreads.size > 0) {
-      await step.sendEvent(
-        "notify-threads",
-        [...changedThreads].map((threadId) => ({
-          name: "gmail/thread.changed" as const,
-          data: { tenantId, threadId },
-        })),
-      );
-    }
+    // ---- Hand meetings to the normal extraction pipeline ----
+    // (Email threads were already notified batch by batch above.)
     if (meetings.length > 0) {
       await step.sendEvent(
         "notify-meetings",
