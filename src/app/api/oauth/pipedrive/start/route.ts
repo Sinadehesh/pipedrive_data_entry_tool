@@ -18,6 +18,15 @@ export async function GET() {
   }
 
   const state = randomBytes(16).toString("hex");
+  let url: string;
+  try {
+    url = authorizeUrl(state);
+  } catch {
+    // PIPEDRIVE_CLIENT_ID/SECRET unset: explain instead of a bare 500.
+    return NextResponse.redirect(
+      new URL("/settings/sync?error=pipedrive_not_configured", appUrl()),
+    );
+  }
   const jar = await cookies();
   jar.set("pd_oauth_state", state, {
     httpOnly: true,
@@ -27,7 +36,7 @@ export async function GET() {
     path: "/api/oauth/pipedrive",
   });
 
-  return NextResponse.redirect(authorizeUrl(state));
+  return NextResponse.redirect(url);
 }
 
 function appUrl(): string {

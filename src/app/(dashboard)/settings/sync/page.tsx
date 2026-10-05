@@ -526,6 +526,10 @@ function errorMessage(code: string): string {
     google_no_refresh_token:
       "Google didn't issue offline access. Remove the app's access in your Google Account permissions, then connect again.",
     google_no_email: "Google didn't return a verified email for the account.",
+    google_not_configured:
+      "Google connections aren't set up on this server yet (Gmail push notifications need GMAIL_PUBSUB_TOPIC, PUBSUB_PUSH_SERVICE_ACCOUNT and PUBSUB_PUSH_AUDIENCE). Ask your administrator.",
+    pipedrive_not_configured:
+      "Pipedrive connections aren't set up on this server yet (PIPEDRIVE_CLIENT_ID and PIPEDRIVE_CLIENT_SECRET are missing). Ask your administrator.",
     google_already_claimed:
       "That Google account is already connected to a different workspace.",
   };

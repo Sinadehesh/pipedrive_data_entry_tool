@@ -26,7 +26,16 @@ export async function GET() {
     return NextResponse.redirect(new URL("/api/auth/signin", appUrl()));
   }
 
-  const { clientId } = googleEnv();
+  // Missing server config is an operator problem, not a crash: send the user
+  // back to settings with an explanation instead of a bare 500.
+  let clientId: string;
+  try {
+    ({ clientId } = googleEnv());
+  } catch {
+    return NextResponse.redirect(
+      new URL("/settings/sync?error=google_not_configured", appUrl()),
+    );
+  }
   const state = randomBytes(16).toString("hex");
   const jar = await cookies();
   jar.set("google_oauth_state", state, {
